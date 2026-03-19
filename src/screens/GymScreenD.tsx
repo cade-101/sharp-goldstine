@@ -5,6 +5,7 @@ import {
   Animated
 } from 'react-native';
 import { supabase } from '../lib/supabase';
+import type { FitnessMode } from './FitnessMode';
 
 // ── COLORS ────────────────────────────────────────────────
 const C = {
@@ -120,7 +121,12 @@ const INTENSITY_OPTIONS = [
   { key: 'hypertrophy', label: 'Pump & volume 🔥', sub: 'Higher reps, feel the burn, shape focus' },
 ];
 
-export default function GymScreenD() {
+export default function GymScreenD({
+  onSelectMode: _onSelectMode,
+}: {
+  onSelectMode?: (mode: FitnessMode) => void;
+} = {}) {
+  void _onSelectMode;
   const [profile, setProfile] = useState<any>(null);
   const [screen, setScreen] = useState<'loading' | 'onboard' | 'home' | 'workout' | 'complete' | 'history'>('loading');
   const [program, setProgram] = useState<any>(null);

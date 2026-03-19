@@ -4,7 +4,7 @@ import {
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert
 } from 'react-native';
 import { supabase } from '../lib/supabase';
-import BeastMode from './BeastMode';
+import type { FitnessMode } from './FitnessMode';
 
 const C = {
   black: '#0a0a0a', dark: '#111111', card: '#181818', border: '#2a2a2a',
@@ -74,8 +74,12 @@ function getTodayWorkout() {
   return [1, 4, 5].includes(day) ? WORKOUTS[day] : WORKOUTS[5];
 }
 
-export default function GymScreen() {
-  const [screen, setScreen] = useState<'home' | 'workout' | 'complete' | 'history' | 'beast'>('home');
+export default function GymScreen({
+  onSelectMode,
+}: {
+  onSelectMode?: (mode: FitnessMode) => void;
+}) {
+  const [screen, setScreen] = useState<'home' | 'workout' | 'complete' | 'history'>('home');
   const [prs, setPrs] = useState<Record<string, { w: number; r: number }>>({});
   const [history, setHistory] = useState<any[]>([]);
   const [session, setSession] = useState<any>(null);
@@ -168,8 +172,6 @@ export default function GymScreen() {
   const minutesLeft = sessionStart ? Math.max(0, 75 - Math.floor(elapsed / 60)) : 75;
   const restTimes = getRestTimes(minutesLeft);
 
-  if (screen === 'beast') return <BeastMode />;
-
   if (screen === 'home') {
     const today = getTodayWorkout();
     const day = new Date().getDay();
@@ -209,7 +211,9 @@ export default function GymScreen() {
             ))}
           </View>
           <TouchableOpacity style={s.startBtn} onPress={startSession}><Text style={s.startBtnText}>START WORKOUT</Text></TouchableOpacity>
-          <TouchableOpacity style={s.lfgBtn} onPress={() => setScreen('beast')}><Text style={s.lfgBtnText}>🔥 LFG</Text></TouchableOpacity>
+          <TouchableOpacity style={s.lfgBtn} onPress={() => onSelectMode?.('beast')}>
+            <Text style={s.lfgBtnText}>🔥 BEAST MODE</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={s.histBtn} onPress={() => setScreen('history')}><Text style={s.histBtnText}>VIEW HISTORY</Text></TouchableOpacity>
         </ScrollView>
       </SafeAreaView>

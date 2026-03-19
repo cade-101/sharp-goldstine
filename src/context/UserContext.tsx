@@ -6,6 +6,7 @@ type User = {
   email: string;
   athlete: string;
   theme: string;
+  fitnessLabel?: string;
 };
 
 type UserContextType = {
