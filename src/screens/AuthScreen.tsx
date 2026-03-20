@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, SafeAreaView, StatusBar, ScrollView,
-  ActivityIndicator, KeyboardAvoidingView, Platform
+  ActivityIndicator, KeyboardAvoidingView, Platform, Alert
 } from 'react-native';
+import * as LocalAuthentication from 'expo-local-authentication';
+import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../lib/supabase';
+import { generateUsername } from '../lib/config';
 
 const C = {
   black: '#0a0a0a',
@@ -35,12 +38,23 @@ const EQUIPMENT = [
 ];
 const BODY_FOCUS = ['Glutes', 'Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core', 'Balanced'];
 
+const BIOMETRIC_EMAIL_KEY = 'tether_bio_email';
+const BIOMETRIC_PASS_KEY = 'tether_bio_pass';
+
 export default function AuthScreen() {
   const [mode, setMode] = useState<'login' | 'signup' | 'onboard'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Biometrics
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioEnrolled, setBioEnrolled] = useState(false);
+  const [bioType, setBioType] = useState('Biometrics');
+
+  // Username for signup
+  const [username, setUsername] = useState(() => generateUsername());
 
   // Onboarding state
   const [step, setStep] = useState(0);
@@ -52,52 +66,130 @@ export default function AuthScreen() {
   const [notes, setNotes] = useState('');
   const [newUserId, setNewUserId] = useState('');
 
+  useEffect(() => {
+    checkBiometrics();
+  }, []);
+
+  async function checkBiometrics() {
+    const compatible = await LocalAuthentication.hasHardwareAsync();
+    const enrolled = await LocalAuthentication.isEnrolledAsync();
+    const savedEmail = await SecureStore.getItemAsync(BIOMETRIC_EMAIL_KEY);
+
+    if (compatible) {
+      const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
+      const hasFaceId = types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION);
+      setBioType(hasFaceId ? 'Face ID' : 'Touch ID');
+    }
+
+    setBioAvailable(compatible && !!savedEmail);
+    setBioEnrolled(enrolled);
+  }
+
+  async function handleBiometricLogin() {
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage: `Sign in to Tether`,
+      cancelLabel: 'Use password',
+      disableDeviceFallback: false,
+    });
+
+    if (!result.success) return;
+
+    const savedEmail = await SecureStore.getItemAsync(BIOMETRIC_EMAIL_KEY);
+    const savedPass = await SecureStore.getItemAsync(BIOMETRIC_PASS_KEY);
+    if (!savedEmail || !savedPass) {
+      setError('No saved credentials. Please log in with email and password.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    const { error } = await supabase.auth.signInWithPassword({ email: savedEmail, password: savedPass });
+    if (error) setError(error.message);
+    setLoading(false);
+  }
+
+  async function offerBiometricSave(loginEmail: string, loginPassword: string) {
+    if (!bioEnrolled) return;
+    const compatible = await LocalAuthentication.hasHardwareAsync();
+    if (!compatible) return;
+
+    Alert.alert(
+      `Save with ${bioType}?`,
+      `Skip the password next time.`,
+      [
+        {
+          text: 'Yes, save',
+          onPress: async () => {
+            await SecureStore.setItemAsync(BIOMETRIC_EMAIL_KEY, loginEmail);
+            await SecureStore.setItemAsync(BIOMETRIC_PASS_KEY, loginPassword);
+            setBioAvailable(true);
+          },
+        },
+        { text: 'Not now', style: 'cancel' },
+      ]
+    );
+  }
+
   async function handleLogin() {
     if (!email || !password) return;
     setLoading(true);
     setError('');
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError(error.message);
-    setLoading(false);
-  }
-
-  async function handleSignup() {
-    if (!email || !password) return;
-    setLoading(true);
-    setError('');
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) { setError(error.message); setLoading(false); return; }
-    if (data.user) {
-      setNewUserId(data.user.id);
-      setMode('onboard');
+    if (error) {
+      setError(error.message);
+    } else {
+      await offerBiometricSave(email, password);
     }
     setLoading(false);
   }
 
-  async function finishOnboarding() {
-  setLoading(true);
-  const athlete = theme === 'form' ? 'danielle' : theme === 'iron' ? 'cade' : email.split('@')[0];
-  await supabase.from('user_profiles').upsert({
-    id: newUserId,
-    email,
-    athlete,
-    theme,
-    goals: [goal],
-    training_days: trainingDays,
-    equipment,
-    body_focus: bodyFocus,
-    notes,
-  });
-  // Force auth state refresh
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session) {
-    await supabase.auth.setSession({
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-    });
+  async function handleSignup() {
+    if (!password) {
+      setError('Password is required.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+
+    let userId: string;
+
+    if (email.trim()) {
+      const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+      if (error) { setError(error.message); setLoading(false); return; }
+      userId = data.user!.id;
+    } else {
+      // No email — anonymous account, password used locally for biometric vault only
+      const { data, error } = await supabase.auth.signInAnonymously();
+      if (error) { setError(error.message); setLoading(false); return; }
+      userId = data.user!.id;
+    }
+
+    setNewUserId(userId);
+    setMode('onboard');
+    setLoading(false);
   }
-  setLoading(false);
-}
+
+  async function finishOnboarding() {
+    setLoading(true);
+    await supabase.from('user_profiles').upsert({
+      id: newUserId,
+      username,
+      theme,
+      goals: [goal],
+      training_days: trainingDays,
+      equipment,
+      body_focus: bodyFocus,
+      notes,
+    });
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      await supabase.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
+    }
+    setLoading(false);
+  }
 
   function toggleDay(dayNum: number) {
     setTrainingDays(prev =>
@@ -119,6 +211,12 @@ export default function AuthScreen() {
         <ScrollView contentContainerStyle={s.authContainer}>
           <Text style={s.logo}>TETHER</Text>
           <Text style={s.logoSub}>your family's operating system</Text>
+
+          {bioAvailable && (
+            <TouchableOpacity style={s.bioBtn} onPress={handleBiometricLogin}>
+              <Text style={s.bioBtnText}>{bioType === 'Face ID' ? '🔒' : '👆'}  Sign in with {bioType}</Text>
+            </TouchableOpacity>
+          )}
 
           <TextInput
             style={s.input}
@@ -161,15 +259,16 @@ export default function AuthScreen() {
           <Text style={s.logo}>TETHER</Text>
           <Text style={s.logoSub}>create your account</Text>
 
-          <TextInput
-            style={s.input}
-            placeholder="Email"
-            placeholderTextColor={C.muted}
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
+          {/* Username block */}
+          <View style={s.usernameBlock}>
+            <Text style={s.usernameLabel}>YOUR CODENAME</Text>
+            <Text style={s.usernameValue}>{username}</Text>
+            <TouchableOpacity style={s.rerollBtn} onPress={() => setUsername(generateUsername())}>
+              <Text style={s.rerollText}>↻  reroll</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Password — always required */}
           <TextInput
             style={s.input}
             placeholder="Password (min 6 characters)"
@@ -177,6 +276,18 @@ export default function AuthScreen() {
             value={password}
             onChangeText={setPassword}
             secureTextEntry
+          />
+
+          {/* Email — optional */}
+          <Text style={s.fieldLabel}>Optional — for backup only. We will never contact you.</Text>
+          <TextInput
+            style={s.input}
+            placeholder="Email (optional)"
+            placeholderTextColor={C.muted}
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
           />
 
           {error ? <Text style={s.error}>{error}</Text> : null}
@@ -209,7 +320,7 @@ export default function AuthScreen() {
         {/* Step 0 — Theme */}
         {step === 0 && (
           <View>
-            <Text style={s.obStep}>Let's set up your experience</Text>
+            <Text style={s.obStep}>Hey, {username}</Text>
             <Text style={s.obQuestion}>Pick your vibe.</Text>
             {THEMES.map(t => (
               <TouchableOpacity
@@ -320,7 +431,7 @@ export default function AuthScreen() {
               multiline
             />
             <TouchableOpacity style={s.primaryBtn} onPress={finishOnboarding} disabled={loading}>
-              {loading ? <ActivityIndicator color={C.black} /> : <Text style={s.primaryBtnText}>LET'S GO 🔥</Text>}
+              {loading ? <ActivityIndicator color={C.black} /> : <Text style={s.primaryBtnText}>{"LET'S GO \uD83D\uDD25"}</Text>}
             </TouchableOpacity>
           </View>
         )}
@@ -334,7 +445,19 @@ const s = StyleSheet.create({
   bg: { flex: 1, backgroundColor: C.black },
   authContainer: { padding: 28, paddingTop: 60, flexGrow: 1, justifyContent: 'center' },
   logo: { fontSize: 52, color: C.white, fontWeight: '900', letterSpacing: 6, textAlign: 'center', marginBottom: 6 },
-  logoSub: { fontSize: 12, color: C.muted, letterSpacing: 3, textAlign: 'center', marginBottom: 48 },
+  logoSub: { fontSize: 12, color: C.muted, letterSpacing: 3, textAlign: 'center', marginBottom: 40 },
+  // Biometrics
+  bioBtn: { backgroundColor: C.card, borderWidth: 1, borderColor: C.gold, borderRadius: 14, padding: 18, alignItems: 'center', marginBottom: 24 },
+  bioBtnText: { color: C.gold, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
+  // Username
+  usernameBlock: { backgroundColor: C.card, borderRadius: 16, borderWidth: 1, borderColor: C.gold, padding: 20, alignItems: 'center', marginBottom: 24 },
+  usernameLabel: { fontSize: 10, color: C.gold, letterSpacing: 4, marginBottom: 8 },
+  usernameValue: { fontSize: 26, color: C.white, fontWeight: '700', textAlign: 'center', letterSpacing: 1, marginBottom: 12 },
+  rerollBtn: { paddingVertical: 8, paddingHorizontal: 20, borderRadius: 20, borderWidth: 1, borderColor: C.border },
+  rerollText: { fontSize: 13, color: C.muted, letterSpacing: 1 },
+  // Field label
+  fieldLabel: { fontSize: 11, color: C.muted, letterSpacing: 0.5, marginBottom: 8, lineHeight: 16 },
+  // Inputs
   input: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 16, fontSize: 16, color: C.white, marginBottom: 14 },
   error: { color: C.red, fontSize: 13, marginBottom: 14, textAlign: 'center' },
   primaryBtn: { backgroundColor: C.gold, borderRadius: 14, padding: 20, alignItems: 'center', marginTop: 8, marginBottom: 12 },
@@ -342,6 +465,7 @@ const s = StyleSheet.create({
   btnDim: { opacity: 0.4 },
   secondaryBtn: { alignItems: 'center', padding: 12 },
   secondaryBtnText: { color: C.muted, fontSize: 14, letterSpacing: 1 },
+  // Onboarding
   onboardContainer: { padding: 24, paddingTop: 20, flexGrow: 1 },
   progressRow: { flexDirection: 'row', gap: 8, marginBottom: 32 },
   progressDot: { flex: 1, height: 3, backgroundColor: C.border, borderRadius: 2 },

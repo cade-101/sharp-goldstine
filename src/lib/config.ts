@@ -1,5 +1,10 @@
 export const ANTHROPIC_API_KEY = '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'
 
+// Spotify Developer app — create at https://developer.spotify.com/dashboard
+// Redirect URI to register: exp://localhost:8082/--/spotify (Expo Go dev)
+// For production build: tether://spotify
+export const SPOTIFY_CLIENT_ID = ''  // ← paste your Spotify client ID here
+
 export const ADJECTIVES = [
   'Cosmic', 'Feral', 'Savage', 'Mighty', 'Silent', 'Wild', 'Blazing', 'Iron',
   'Golden', 'Rogue', 'Stormy', 'Neon', 'Ancient', 'Rapid', 'Fierce', 'Lunar',

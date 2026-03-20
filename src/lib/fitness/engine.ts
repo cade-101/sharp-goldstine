@@ -172,22 +172,6 @@ export function logSetAndReplan(params: {
     plannedSets = bumpNextPlannedWeight(plannedSets, params.completed.exerciseId);
   }
 
-  if (effort === 'keep_coming') {
-    // If time allows, add a "finisher" as one more set.
-    // Without exercise metadata here, we treat finisher as an extra set
-    // on the current exercise (or last planned exercise if none remain).
-    const finisherExerciseId =
-      plannedSets[plannedSets.length - 1]?.exerciseId ?? params.completed.exerciseId;
-    plannedSets = [
-      ...plannedSets,
-      {
-        exerciseId: finisherExerciseId,
-        targetReps: Math.max(8, params.completed.reps),
-        targetWeight: params.completed.weight,
-      },
-    ];
-  }
-
   plannedSets = trimToCapacity({
     state: params.state,
     now: params.completed.completedAt,

@@ -3,5 +3,5 @@
   "compilerOptions": {
     "strict": true
   },
-  "exclude": ["**/*.backup.tsx"]
+  "exclude": ["**/*.backup.tsx", "supabase/**/*"]
 }
