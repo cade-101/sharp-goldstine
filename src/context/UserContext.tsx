@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../lib/supabase';
+import { getTheme, ThemeTokens } from '../themes';
 
 const BIOMETRIC_EMAIL_KEY = 'tether_bio_email';
 const BIOMETRIC_PASS_KEY = 'tether_bio_pass';
 export const PENDING_DELETE_KEY = 'tether_pending_delete';
+const EPHEMERAL_SESSION_KEY = 'tether_ephemeral_session';
 
 type User = {
   id: string;
@@ -21,20 +23,25 @@ type User = {
   spotify_access_token?: string | null;
   spotify_refresh_token?: string | null;
   spotify_token_expiry?: number | null;
+  valkyrie_seen?: boolean;
 };
 
 type UserContextType = {
   user: User | null;
   loading: boolean;
+  themeTokens: ThemeTokens;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 };
 
 const UserContext = createContext<UserContextType>({
   user: null,
   loading: true,
+  themeTokens: getTheme('iron'),
   signOut: async () => {},
   deleteAccount: async () => {},
+  refreshUser: async () => {},
 });
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
@@ -42,8 +49,15 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
+        // If user logged in without "Keep me signed in", sign them out on next open
+        const ephemeral = await SecureStore.getItemAsync(EPHEMERAL_SESSION_KEY);
+        if (ephemeral === 'true') {
+          await SecureStore.deleteItemAsync(EPHEMERAL_SESSION_KEY);
+          await supabase.auth.signOut();
+          return;
+        }
         loadProfile(session.user.id);
         // Flush any queued deletion from a previous offline attempt
         flushPendingDelete(session.user.id);
@@ -69,6 +83,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     if (data) setUser(data);
     setLoading(false);
+  }
+
+  async function refreshUser() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) loadProfile(session.user.id);
   }
 
   async function signOut() {
@@ -139,8 +158,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     await SecureStore.deleteItemAsync(PENDING_DELETE_KEY);
   }
 
+  const themeTokens = getTheme(user?.theme ?? 'iron');
+
   return (
-    <UserContext.Provider value={{ user, loading, signOut, deleteAccount }}>
+    <UserContext.Provider value={{ user, loading, themeTokens, signOut, deleteAccount, refreshUser }}>
       {children}
     </UserContext.Provider>
   );

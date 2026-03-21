@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import EffortSelector from '../components/EffortSelector';
 import { PropsModal } from './HouseholdSetup';
 import type { EffortRating } from '../lib/fitnessTypes';
+import VSScreen from '../components/VSScreen';
 
 // ── DEFAULT SHIT TALK ──────────────────────────────────────────────────────────
 const DEFAULT_SHIT_TALK = [
@@ -25,7 +26,7 @@ const DEFAULT_SHIT_TALK = [
 const EDGE_URL = 'https://rzutjhmaoagjdrjefvzh.supabase.co/functions/v1/fitness-engine';
 
 // ── TYPES ──────────────────────────────────────────────────────────────────────
-type JointScreen = 'invite' | 'waiting' | 'active' | 'complete';
+type JointScreen = 'invite' | 'waiting' | 'vs' | 'active' | 'complete';
 
 interface Exercise {
   id: string;
@@ -299,7 +300,7 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
       // +10 pts for session start (on time)
       setMyScore(prev => ({ ...prev, sessions: 1, onTime: 1, total: 15 }));
 
-      setScreen('active');
+      setScreen('vs');
     } catch {
       Alert.alert('Could not load session', 'Check connection and try again.');
     }
@@ -449,6 +450,18 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
       </View>
     </SafeAreaView>
   );
+
+  // ── VS SCREEN ──────────────────────────────────────────────────────────────
+  if (screen === 'vs') {
+    return (
+      <VSScreen
+        userA={{ username: myName, theme: user.theme ?? 'iron', rank: 0, wins: 0, losses: 0, streak: 0 }}
+        userB={{ username: partnerUsername || 'PARTNER', theme: 'iron', rank: 0, wins: 0, losses: 0, streak: 0 }}
+        mode="joint_ops"
+        onBegin={() => setScreen('active')}
+      />
+    );
+  }
 
   // ── ACTIVE WORKOUT ─────────────────────────────────────────────────────────
   if (screen === 'active') {

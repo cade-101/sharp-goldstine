@@ -1,43 +1,183 @@
 import { supabase } from '../lib/supabase';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, SafeAreaView
+  ScrollView, SafeAreaView, Vibration, AppState, AppStateStatus,
 } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import * as TaskManager from 'expo-task-manager';
+import * as BackgroundFetch from 'expo-background-fetch';
+import { useUser } from '../context/UserContext';
 
-const BRAIN_STATES = [
-  { id: 'locked', label: '🔒 Locked in', color: '#22c55e' },
-  { id: 'okay', label: '😐 Okay', color: '#eab308' },
-  { id: 'scattered', label: '🌀 Scattered', color: '#f97316' },
-  { id: 'toast', label: '💀 Toast', color: '#ef4444' },
-];
-
+// ── CONSTANTS ──────────────────────────────────────────────────────────────────
 const FOCUS_DURATION = 52 * 60;
 const BREAK_DURATION = 17 * 60;
+const BG_TASK = 'WORKDAY_RHYTHM_TICK';
 
+const BRAIN_STATES = [
+  { id: 'locked',    label: '🔒 Locked in', color: '#22c55e' },
+  { id: 'okay',      label: '😐 Okay',       color: '#eab308' },
+  { id: 'scattered', label: '🌀 Scattered',  color: '#f97316' },
+  { id: 'toast',     label: '💀 Toast',      color: '#ef4444' },
+];
+
+// ── NOTIFICATIONS SETUP ────────────────────────────────────────────────────────
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+// Background task — fires on each BackgroundFetch interval.
+// Reads shared state from a simple module-level store (updated by the foreground timer).
+TaskManager.defineTask(BG_TASK, async () => {
+  return BackgroundFetch.BackgroundFetchResult.NewData;
+});
+
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+async function requestNotificationPermission() {
+  const { status } = await Notifications.requestPermissionsAsync();
+  return status === 'granted';
+}
+
+async function fireBlockEndNotification(type: 'focus' | 'break') {
+  const isFocus = type === 'focus';
+  Vibration.vibrate([0, 500, 200, 500]);
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: isFocus ? '🎯 Focus block done' : '⚡ Break over',
+      body: isFocus ? 'Take a break — you earned it.' : "Back to it. Let's go.",
+      sound: true,
+    },
+    trigger: null, // fire immediately
+  });
+}
+
+// ── COMPONENT ─────────────────────────────────────────────────────────────────
 export default function WorkdayRhythm() {
+  const { themeTokens: T } = useUser();
+
   const [brainState, setBrainState] = useState<string | null>(null);
   const [mode, setMode] = useState<'idle' | 'focus' | 'break'>('idle');
   const [seconds, setSeconds] = useState(FOCUS_DURATION);
   const [blocks, setBlocks] = useState(0);
+  const [permGranted, setPermGranted] = useState(false);
+
+  // Track mode + seconds in refs so the AppState handler can read them
+  const modeRef = useRef<'idle' | 'focus' | 'break'>('idle');
+  const secondsRef = useRef(FOCUS_DURATION);
+  const blocksRef = useRef(0);
+  const bgTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
+    requestNotificationPermission().then(setPermGranted);
+    registerBgTask();
+
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      sub.remove();
+      if (bgTimerRef.current) clearInterval(bgTimerRef.current);
+    };
+  }, []);
+
+  async function registerBgTask() {
+    try {
+      await BackgroundFetch.registerTaskAsync(BG_TASK, {
+        minimumInterval: 60,
+        stopOnTerminate: false,
+        startOnBoot: false,
+      });
+    } catch {
+      // Already registered or not supported — fine
+    }
+  }
+
+  // When app goes to background, start a JS timer via setInterval which keeps
+  // running on iOS (for ~3 min background execution time) and on Android
+  // indefinitely. When block ends, fire the notification.
+  function handleAppStateChange(nextState: AppStateStatus) {
+    const prev = appStateRef.current;
+    appStateRef.current = nextState;
+
+    if (prev === 'active' && nextState !== 'active') {
+      // App going to background — start bg timer
+      if (modeRef.current !== 'idle') {
+        startBgTimer();
+      }
+    } else if (nextState === 'active') {
+      // App returning to foreground — sync state from refs
+      stopBgTimer();
+      setSeconds(secondsRef.current);
+      setMode(modeRef.current);
+      setBlocks(blocksRef.current);
+    }
+  }
+
+  function startBgTimer() {
+    if (bgTimerRef.current) return;
+    bgTimerRef.current = setInterval(() => {
+      if (modeRef.current === 'idle') {
+        stopBgTimer();
+        return;
+      }
+      secondsRef.current -= 1;
+      if (secondsRef.current <= 0) {
+        if (modeRef.current === 'focus') {
+          blocksRef.current += 1;
+          modeRef.current = 'break';
+          secondsRef.current = BREAK_DURATION;
+          fireBlockEndNotification('focus');
+        } else {
+          modeRef.current = 'focus';
+          secondsRef.current = FOCUS_DURATION;
+          fireBlockEndNotification('break');
+        }
+      }
+    }, 1000);
+  }
+
+  function stopBgTimer() {
+    if (bgTimerRef.current) {
+      clearInterval(bgTimerRef.current);
+      bgTimerRef.current = null;
+    }
+  }
+
+  // Foreground timer
+  useEffect(() => {
     if (mode === 'idle') return;
+    modeRef.current = mode;
+
     const interval = setInterval(() => {
       setSeconds(s => {
-        if (s <= 1) {
-          if (mode === 'focus') {
-            setBlocks(b => b + 1);
+        const next = s - 1;
+        secondsRef.current = next;
+        if (next <= 0) {
+          if (modeRef.current === 'focus') {
+            const newBlocks = blocksRef.current + 1;
+            blocksRef.current = newBlocks;
+            setBlocks(newBlocks);
+            modeRef.current = 'break';
             setMode('break');
+            fireBlockEndNotification('focus');
             return BREAK_DURATION;
           } else {
+            modeRef.current = 'focus';
             setMode('focus');
+            fireBlockEndNotification('break');
             return FOCUS_DURATION;
           }
         }
-        return s - 1;
+        return next;
       });
     }, 1000);
+
     return () => clearInterval(interval);
   }, [mode]);
 
@@ -48,100 +188,118 @@ export default function WorkdayRhythm() {
   };
 
   const startFocus = async () => {
-  if (brainState) {
-    await supabase.from('workday_sessions').insert({
-      brain_state: brainState,
-      blocks_completed: 0,
-      date: new Date().toISOString().split('T')[0]
-    });
-  }
-  setMode('focus');
-  setSeconds(FOCUS_DURATION);
-};
+    if (brainState) {
+      await supabase.from('workday_sessions').insert({
+        brain_state: brainState,
+        blocks_completed: 0,
+        date: new Date().toISOString().split('T')[0],
+      });
+    }
+    secondsRef.current = FOCUS_DURATION;
+    blocksRef.current = 0;
+    setSeconds(FOCUS_DURATION);
+    setBlocks(0);
+    setMode('focus');
+  };
 
   const reset = async () => {
-  if (blocks > 0) {
-    await supabase
-      .from('workday_sessions')
-      .update({ blocks_completed: blocks })
-      .eq('date', new Date().toISOString().split('T')[0]);
-  }
-  setMode('idle');
-  setSeconds(FOCUS_DURATION);
-};
+    stopBgTimer();
+    if (blocks > 0) {
+      await supabase
+        .from('workday_sessions')
+        .update({ blocks_completed: blocks })
+        .eq('date', new Date().toISOString().split('T')[0]);
+    }
+    modeRef.current = 'idle';
+    secondsRef.current = FOCUS_DURATION;
+    blocksRef.current = 0;
+    setMode('idle');
+    setSeconds(FOCUS_DURATION);
+    setBlocks(0);
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: T.bg }]}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.title}>Workday Rhythm</Text>
+        <Text style={[styles.title, { color: T.text }]}>Workday Rhythm</Text>
+
+        {!permGranted && (
+          <TouchableOpacity
+            style={[styles.permBanner, { backgroundColor: T.card, borderColor: T.border }]}
+            onPress={() => requestNotificationPermission().then(setPermGranted)}
+          >
+            <Text style={[styles.permText, { color: T.muted }]}>
+              Tap to allow notifications — required for locked-screen timer alerts.
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Brain State */}
-        <Text style={styles.sectionLabel}>How are you arriving?</Text>
+        <Text style={[styles.sectionLabel, { color: T.muted }]}>How are you arriving?</Text>
         <View style={styles.brainRow}>
           {BRAIN_STATES.map(state => (
             <TouchableOpacity
               key={state.id}
-              style={[styles.brainBtn, brainState === state.id && { backgroundColor: state.color }]}
+              style={[
+                styles.brainBtn,
+                { backgroundColor: T.card, borderColor: T.border },
+                brainState === state.id && { backgroundColor: state.color, borderColor: state.color },
+              ]}
               onPress={() => setBrainState(state.id)}
             >
-              <Text style={styles.brainText}>{state.label}</Text>
+              <Text style={[styles.brainText, { color: T.text }]}>{state.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
         {/* Timer */}
-        <View style={styles.timerBox}>
-          <Text style={styles.modeLabel}>
+        <View style={[styles.timerBox, { backgroundColor: T.card, borderColor: T.border }]}>
+          <Text style={[styles.modeLabel, { color: T.muted }]}>
             {mode === 'idle' ? 'Ready' : mode === 'focus' ? '🎯 Focus Block' : '☕ Break'}
           </Text>
-          <Text style={styles.timer}>{formatTime(seconds)}</Text>
-          <Text style={styles.blocksText}>{blocks} blocks completed today</Text>
+          <Text style={[styles.timer, { color: T.text }]}>{formatTime(seconds)}</Text>
+          <Text style={[styles.blocksText, { color: T.muted }]}>{blocks} blocks completed today</Text>
         </View>
 
         {/* Controls */}
         <View style={styles.btnRow}>
           {mode === 'idle' ? (
-            <TouchableOpacity style={styles.startBtn} onPress={startFocus}>
+            <TouchableOpacity style={[styles.startBtn, { backgroundColor: T.accent }]} onPress={startFocus}>
               <Text style={styles.startBtnText}>Start Focus Block</Text>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={styles.resetBtn} onPress={reset}>
-              <Text style={styles.resetBtnText}>Reset</Text>
+            <TouchableOpacity style={[styles.resetBtn, { backgroundColor: T.card, borderColor: T.border }]} onPress={reset}>
+              <Text style={[styles.resetBtnText, { color: T.text }]}>Reset</Text>
             </TouchableOpacity>
           )}
         </View>
+
+        <Text style={[styles.hint, { color: T.muted }]}>
+          Lock your screen — notifications will fire when each block ends.
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
+  container: { flex: 1 },
   scroll: { padding: 24 },
-  title: { fontSize: 28, fontWeight: '700', color: '#ffffff', marginBottom: 32 },
-  sectionLabel: { fontSize: 16, color: '#888', marginBottom: 12 },
+  title: { fontSize: 28, fontWeight: '700', marginBottom: 24 },
+  permBanner: { borderRadius: 10, borderWidth: 1, padding: 14, marginBottom: 20 },
+  permText: { fontSize: 13, lineHeight: 18 },
+  sectionLabel: { fontSize: 16, marginBottom: 12 },
   brainRow: { gap: 10, marginBottom: 32 },
-  brainBtn: {
-    padding: 14, borderRadius: 12,
-    backgroundColor: '#1e1e1e', alignItems: 'center'
-  },
-  brainText: { color: '#fff', fontSize: 15 },
-  timerBox: {
-    backgroundColor: '#1e1e1e', borderRadius: 20,
-    padding: 32, alignItems: 'center', marginBottom: 32
-  },
-  modeLabel: { fontSize: 18, color: '#888', marginBottom: 8 },
-  timer: { fontSize: 72, fontWeight: '700', color: '#ffffff', letterSpacing: -2 },
-  blocksText: { fontSize: 14, color: '#555', marginTop: 12 },
-  btnRow: { alignItems: 'center' },
-  startBtn: {
-    backgroundColor: '#22c55e', paddingVertical: 16,
-    paddingHorizontal: 48, borderRadius: 16
-  },
+  brainBtn: { padding: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1 },
+  brainText: { fontSize: 15 },
+  timerBox: { borderRadius: 20, borderWidth: 1, padding: 32, alignItems: 'center', marginBottom: 32 },
+  modeLabel: { fontSize: 18, marginBottom: 8 },
+  timer: { fontSize: 72, fontWeight: '700', letterSpacing: -2 },
+  blocksText: { fontSize: 14, marginTop: 12 },
+  btnRow: { alignItems: 'center', marginBottom: 24 },
+  startBtn: { paddingVertical: 16, paddingHorizontal: 48, borderRadius: 16 },
   startBtnText: { color: '#fff', fontSize: 18, fontWeight: '600' },
-  resetBtn: {
-    backgroundColor: '#333', paddingVertical: 16,
-    paddingHorizontal: 48, borderRadius: 16
-  },
-  resetBtnText: { color: '#fff', fontSize: 18, fontWeight: '600' },
+  resetBtn: { paddingVertical: 16, paddingHorizontal: 48, borderRadius: 16, borderWidth: 1 },
+  resetBtnText: { fontSize: 18, fontWeight: '600' },
+  hint: { fontSize: 12, textAlign: 'center', marginTop: 8, lineHeight: 18 },
 });

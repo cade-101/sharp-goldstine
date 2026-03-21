@@ -5,22 +5,82 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { ANTHROPIC_API_KEY } from '../lib/config';
+import { useUser } from '../context/UserContext';
 
-const C = {
-  black: '#0a0a0a',
-  dark: '#111111',
-  card: '#181818',
-  border: '#2a2a2a',
-  gold: '#c9a84c',
-  goldDim: '#7a6230',
-  green: '#3ce08a',
-  greenDim: '#1a5a3a',
-  red: '#e03c3c',
-  redDim: '#5a1a1a',
-  white: '#f0ece4',
-  muted: '#666666',
-  blue: '#4a9eff',
-};
+import { ThemeTokens } from '../themes';
+import { pickAndParseFinancialImage, ParsedTransaction } from '../lib/parseFinancialImage';
+
+function makeStyles(T: ThemeTokens) {
+  return StyleSheet.create({
+    bg:           { flex: 1, backgroundColor: T.bg },
+    paydayBanner: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, paddingBottom: 16, backgroundColor: T.dark, borderBottomWidth: 1, borderBottomColor: T.border },
+    paydayLabel:  { fontSize: 10, color: T.muted, letterSpacing: 3, marginBottom: 2 },
+    paydayDays:   { fontSize: 32, color: T.accent, fontWeight: '700', letterSpacing: 1 },
+    paydayRight:  { alignItems: 'flex-end' as const },
+    header:       { padding: 20, paddingBottom: 8 },
+    headerLabel:  { fontSize: 10, color: T.muted, letterSpacing: 3 },
+    headerTitle:  { fontSize: 42, color: T.text, fontWeight: '700', letterSpacing: 2 },
+    committedRow: { flexDirection: 'row' as const, justifyContent: 'space-between' as const, paddingHorizontal: 20, paddingBottom: 8 },
+    committedLabel: { fontSize: 10, color: T.muted, letterSpacing: 2 },
+    committedAmt:   { fontSize: 13, color: T.red, fontWeight: '600' },
+    envelopeCard: { marginHorizontal: 16, marginBottom: 10, backgroundColor: T.card, borderRadius: 14, borderWidth: 1, borderColor: T.border, padding: 16 },
+    envTop:       { flexDirection: 'row' as const, justifyContent: 'space-between' as const, marginBottom: 10 },
+    envName:      { fontSize: 14, color: T.text, fontWeight: '500' },
+    envRemaining: { fontSize: 14, color: T.green, fontWeight: '600' },
+    progressBg:   { height: 4, backgroundColor: T.border, borderRadius: 2, marginBottom: 6, overflow: 'hidden' as const },
+    progressFill: { height: 4, borderRadius: 2 },
+    envBottom:    { flexDirection: 'row' as const, justifyContent: 'space-between' as const },
+    envSpent:     { fontSize: 11, color: T.muted },
+    envBudget:    { fontSize: 11, color: T.muted },
+    scanBtn:      { marginHorizontal: 16, marginBottom: 8, backgroundColor: T.card, borderRadius: 14, borderWidth: 1, borderColor: T.border, padding: 18, alignItems: 'center' as const },
+    scanBtnText:  { color: T.text, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
+    affordBtn:    { margin: 16, marginBottom: 8, backgroundColor: T.accent, borderRadius: 14, padding: 20, alignItems: 'center' as const },
+    affordBtnText:{ color: T.bg, fontSize: 20, fontWeight: '700', letterSpacing: 1 },
+    actionRow:    { flexDirection: 'row' as const, gap: 10, marginHorizontal: 16, marginBottom: 32 },
+    actionBtn:    { flex: 1, backgroundColor: T.card, borderRadius: 12, padding: 16, alignItems: 'center' as const, borderWidth: 1, borderColor: T.border },
+    actionBtnText:{ color: T.text, fontSize: 14, fontWeight: '500' },
+    formContainer:{ padding: 24 },
+    back:         { fontSize: 12, color: T.muted, letterSpacing: 2, marginBottom: 20 },
+    formTitle:    { fontSize: 36, color: T.text, fontWeight: '700', letterSpacing: 2, marginBottom: 28 },
+    formLabel:    { fontSize: 10, color: T.muted, letterSpacing: 3, marginBottom: 8 },
+    input:        { backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 10, padding: 14, fontSize: 16, color: T.text, marginBottom: 20 },
+    chipRow:      { flexDirection: 'row' as const, gap: 8, paddingRight: 16 },
+    chipGrid:     { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8, marginBottom: 24 },
+    chip:         { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: T.border, backgroundColor: T.card, minWidth: 120 },
+    chipText:     { fontSize: 13, color: T.text, fontWeight: '500' },
+    chipSub:      { fontSize: 10, color: T.muted, marginTop: 2 },
+    askBtn:       { backgroundColor: T.accent, borderRadius: 14, padding: 20, alignItems: 'center' as const, marginBottom: 24 },
+    askBtnDim:    { opacity: 0.4 },
+    askBtnText:   { color: T.bg, fontSize: 22, fontWeight: '700', letterSpacing: 3 },
+    resultCard:   { backgroundColor: T.card, borderRadius: 16, borderWidth: 2, padding: 20, marginBottom: 24 },
+    resultAnswer: { fontSize: 32, fontWeight: '700', marginBottom: 12, letterSpacing: 2 },
+    resultText:   { fontSize: 15, color: T.text, lineHeight: 22 },
+    logItBtn:     { marginTop: 16, backgroundColor: T.green, borderRadius: 10, padding: 14, alignItems: 'center' as const },
+    logItBtnText: { color: T.bg, fontSize: 16, fontWeight: '700' },
+    histHeader:   { flexDirection: 'row' as const, justifyContent: 'space-between' as const, alignItems: 'center' as const, padding: 20, borderBottomWidth: 1, borderBottomColor: T.border },
+    histTitle:    { fontSize: 36, color: T.text, fontWeight: '700', letterSpacing: 2 },
+    histCard:     { backgroundColor: T.card, borderRadius: 12, borderWidth: 1, borderColor: T.border, padding: 14, marginBottom: 8 },
+    histTop:      { flexDirection: 'row' as const, justifyContent: 'space-between' as const, marginBottom: 4 },
+    histEnv:      { fontSize: 14, color: T.text, fontWeight: '500' },
+    histAmount:   { fontSize: 16, fontWeight: '700' },
+    histNote:     { fontSize: 12, color: T.muted, marginBottom: 4 },
+    histDate:     { fontSize: 10, color: T.muted },
+    empty:        { textAlign: 'center' as const, color: T.muted, fontSize: 14, paddingTop: 60, letterSpacing: 2 },
+    // Scan review
+    scanSection:  { marginBottom: 16 },
+    scanCatLabel: { fontSize: 10, color: T.muted, letterSpacing: 3, marginHorizontal: 16, marginBottom: 8, marginTop: 8 },
+    scanItem:     { marginHorizontal: 16, marginBottom: 8, backgroundColor: T.card, borderRadius: 12, borderWidth: 1, borderColor: T.border, padding: 14 },
+    scanRow:      { flexDirection: 'row' as const, justifyContent: 'space-between' as const, alignItems: 'center' as const },
+    scanMerchant: { fontSize: 15, color: T.text, fontWeight: '600', flex: 1 },
+    scanAmt:      { fontSize: 15, fontWeight: '700' },
+    scanMeta:     { flexDirection: 'row' as const, gap: 8, marginTop: 4 },
+    scanConf:     { fontSize: 10, letterSpacing: 1 },
+    scanDelete:   { padding: 4 },
+    scanDeleteTxt:{ fontSize: 18, color: T.muted },
+    logAllBtn:    { margin: 16, backgroundColor: T.accent, borderRadius: 14, padding: 20, alignItems: 'center' as const },
+    logAllBtnText:{ color: T.bg, fontSize: 18, fontWeight: '700', letterSpacing: 2 },
+  });
+}
 
 // Bi-weekly pay: every 2nd Friday
 function getNextPayday(): Date {
@@ -42,19 +102,26 @@ function daysUntilPayday(): number {
 }
 
 const DEFAULT_ENVELOPES = [
-  { id: 'groceries', name: 'Groceries 🛒', budget: 400, color: C.green },
-  { id: 'fuel', name: 'Fuel ⛽', budget: 200, color: C.gold },
-  { id: 'vehicle', name: 'Vehicle 🚗', budget: 100, color: C.blue },
-  { id: 'entertainment', name: 'Entertainment 🎮', budget: 150, color: '#a78bfa' },
-  { id: 'emergency', name: 'Emergency 🚨', budget: 200, color: C.red },
-  { id: 'overflow', name: 'Overflow 💰', budget: 100, color: C.muted },
-  { id: 'spectre', name: 'Spectre 💼', budget: 500, color: '#38bdf8' },
+  { id: 'groceries',    name: 'Groceries 🛒',    budget: 400, color: '#3ce08a' },
+  { id: 'fuel',         name: 'Fuel ⛽',          budget: 200, color: '#c9a84c' },
+  { id: 'vehicle',      name: 'Vehicle 🚗',       budget: 100, color: '#4a9eff' },
+  { id: 'entertainment',name: 'Entertainment 🎮', budget: 150, color: '#a78bfa' },
+  { id: 'emergency',    name: 'Emergency 🚨',     budget: 200, color: '#e03c3c' },
+  { id: 'overflow',     name: 'Overflow 💰',      budget: 100, color: '#666666' },
+  { id: 'spectre',      name: 'Spectre 💼',       budget: 500, color: '#38bdf8' },
 ];
 
 export default function BudgetTracker() {
+  const { user, themeTokens: T } = useUser();
+  const s = makeStyles(T);
   const [envelopes, setEnvelopes] = useState(DEFAULT_ENVELOPES);
   const [expenses, setExpenses] = useState<any[]>([]);
-  const [screen, setScreen] = useState<'home' | 'log' | 'afford' | 'history'>('home');
+  const [screen, setScreen] = useState<'home' | 'log' | 'afford' | 'history' | 'scan_review'>('home');
+
+  // Scan
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanResults, setScanResults] = useState<ParsedTransaction[]>([]);
+  const [committedTotal, setCommittedTotal] = useState(0);
 
   // Log expense
   const [logEnvelope, setLogEnvelope] = useState('');
@@ -70,7 +137,7 @@ export default function BudgetTracker() {
 
   const daysLeft = daysUntilPayday();
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); loadCommittedBills(); }, []);
 
   async function loadData() {
     const startOfPeriod = new Date();
@@ -83,6 +150,73 @@ export default function BudgetTracker() {
       .order('created_at', { ascending: false });
 
     if (data) setExpenses(data);
+  }
+
+  async function loadCommittedBills() {
+    if (!user?.id) return;
+    const { data } = await supabase
+      .from('committed_bills')
+      .select('amount')
+      .eq('user_id', user.id);
+    if (data) {
+      const total = data.reduce((sum, b) => sum + Math.abs(parseFloat(b.amount)), 0);
+      setCommittedTotal(total);
+    }
+  }
+
+  async function scanStatement() {
+    setScanLoading(true);
+    try {
+      const results = await pickAndParseFinancialImage();
+      if (results && results.length > 0) {
+        setScanResults(results);
+        setScreen('scan_review');
+      } else if (results !== null) {
+        Alert.alert('Nothing found', 'Could not extract transactions from that image.');
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to parse image. Try a clearer screenshot.');
+    }
+    setScanLoading(false);
+  }
+
+  async function logAllScanned() {
+    if (!user?.id) return;
+    const today = new Date().toISOString().split('T')[0];
+
+    // Save expenses to budget_expenses
+    const expenses_to_log = scanResults
+      .filter(t => t.amount < 0 && t.category !== 'transfer' && t.category !== 'income')
+      .map(t => ({
+        user_id: user.id,
+        envelope_id: t.envelope,
+        amount: Math.abs(t.amount),
+        note: t.merchant,
+        date: t.date || today,
+      }));
+
+    if (expenses_to_log.length > 0) {
+      await supabase.from('budget_expenses').insert(expenses_to_log);
+    }
+
+    // Save recurring auto payments to committed_bills
+    const recurring = scanResults.filter(t => t.is_recurring && t.category === 'auto_payment');
+    if (recurring.length > 0) {
+      const bills = recurring.map(t => ({
+        user_id: user.id,
+        merchant: t.merchant,
+        amount: Math.abs(t.amount),
+        is_auto_pay: true,
+        envelope_id: t.envelope,
+        last_seen: t.date || today,
+      }));
+      await supabase.from('committed_bills').insert(bills);
+    }
+
+    await loadData();
+    await loadCommittedBills();
+    setScanResults([]);
+    setScreen('home');
   }
 
   function getSpent(envelopeId: string) {
@@ -104,6 +238,7 @@ export default function BudgetTracker() {
   async function logExpense() {
     if (!logEnvelope || !logAmount) return;
     const expense = {
+      user_id: user?.id,
       envelope_id: logEnvelope,
       amount: parseFloat(logAmount),
       note: logNote,
@@ -171,7 +306,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
   // ── HOME ──────────────────────────────────────────────
   if (screen === 'home') return (
     <SafeAreaView style={s.bg}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={T.mode === 'light' ? 'dark-content' : 'light-content'} />
       <ScrollView showsVerticalScrollIndicator={false}>
 
         {/* Payday countdown */}
@@ -182,7 +317,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
           </View>
           <View style={s.paydayRight}>
             <Text style={s.paydayLabel}>TOTAL LEFT</Text>
-            <Text style={[s.paydayDays, { color: getTotalRemaining() < 100 ? C.red : C.green }]}>
+            <Text style={[s.paydayDays, { color: getTotalRemaining() < 100 ? T.red : T.green }]}>
               ${getTotalRemaining().toFixed(0)}
             </Text>
           </View>
@@ -191,8 +326,16 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
         {/* Header */}
         <View style={s.header}>
           <Text style={s.headerLabel}>THIS PAY PERIOD</Text>
-          <Text style={s.headerTitle}>BUDGET</Text>
+          <Text style={s.headerTitle}>THE ARMORY</Text>
         </View>
+
+        {/* Committed bills line */}
+        {committedTotal > 0 && (
+          <View style={s.committedRow}>
+            <Text style={s.committedLabel}>COMMITTED (auto-pay)</Text>
+            <Text style={s.committedAmt}>-${committedTotal.toFixed(0)} spoken for</Text>
+          </View>
+        )}
 
         {/* Envelopes */}
         {envelopes.map(env => {
@@ -204,12 +347,12 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
             <View key={env.id} style={s.envelopeCard}>
               <View style={s.envTop}>
                 <Text style={s.envName}>{env.name}</Text>
-                <Text style={[s.envRemaining, over && { color: C.red }]}>
+                <Text style={[s.envRemaining, over && { color: T.red }]}>
                   {over ? `-$${Math.abs(remaining).toFixed(0)} over` : `$${remaining.toFixed(0)} left`}
                 </Text>
               </View>
               <View style={s.progressBg}>
-                <View style={[s.progressFill, { width: `${pct * 100}%`, backgroundColor: over ? C.red : env.color }]} />
+                <View style={[s.progressFill, { width: `${pct * 100}%`, backgroundColor: over ? T.red : env.color }]} />
               </View>
               <View style={s.envBottom}>
                 <Text style={s.envSpent}>spent ${spent.toFixed(0)}</Text>
@@ -218,6 +361,14 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
             </View>
           );
         })}
+
+        {/* Scan statement */}
+        <TouchableOpacity style={s.scanBtn} onPress={scanStatement} disabled={scanLoading}>
+          {scanLoading
+            ? <ActivityIndicator color={T.accent} />
+            : <Text style={s.scanBtnText}>📸 Scan statement</Text>
+          }
+        </TouchableOpacity>
 
         {/* Action buttons */}
         <TouchableOpacity style={s.affordBtn} onPress={() => { setAffordResult(null); setScreen('afford'); }}>
@@ -240,7 +391,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
   // ── CAN I AFFORD THIS ─────────────────────────────────
   if (screen === 'afford') return (
     <SafeAreaView style={s.bg}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={T.mode === 'light' ? 'dark-content' : 'light-content'} />
       <ScrollView contentContainerStyle={s.formContainer}>
         <TouchableOpacity onPress={() => setScreen('home')}><Text style={s.back}>← BACK</Text></TouchableOpacity>
         <Text style={s.formTitle}>Can I afford this?</Text>
@@ -249,7 +400,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
         <TextInput
           style={s.input}
           placeholder="e.g. new headphones, dinner out..."
-          placeholderTextColor={C.muted}
+          placeholderTextColor={T.muted}
           value={affordItem}
           onChangeText={setAffordItem}
         />
@@ -258,7 +409,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
         <TextInput
           style={s.input}
           placeholder="$0.00"
-          placeholderTextColor={C.muted}
+          placeholderTextColor={T.muted}
           keyboardType="decimal-pad"
           value={affordAmount}
           onChangeText={setAffordAmount}
@@ -286,14 +437,14 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
           disabled={affordLoading || !affordAmount || !affordEnvelope}
         >
           {affordLoading
-            ? <ActivityIndicator color={C.black} />
+            ? <ActivityIndicator color={T.bg} />
             : <Text style={s.askBtnText}>ASK</Text>
           }
         </TouchableOpacity>
 
         {affordResult && (
-          <View style={[s.resultCard, { borderColor: affordResult.isYes ? C.green : C.red }]}>
-            <Text style={[s.resultAnswer, { color: affordResult.isYes ? C.green : C.red }]}>
+          <View style={[s.resultCard, { borderColor: affordResult.isYes ? T.green : T.red }]}>
+            <Text style={[s.resultAnswer, { color: affordResult.isYes ? T.green : T.red }]}>
               {affordResult.isYes ? '✅ YES' : '❌ NO'}
             </Text>
             <Text style={s.resultText}>{affordResult.text}</Text>
@@ -319,7 +470,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
   // ── LOG EXPENSE ───────────────────────────────────────
   if (screen === 'log') return (
     <SafeAreaView style={s.bg}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={T.mode === 'light' ? 'dark-content' : 'light-content'} />
       <ScrollView contentContainerStyle={s.formContainer}>
         <TouchableOpacity onPress={() => setScreen('home')}><Text style={s.back}>← BACK</Text></TouchableOpacity>
         <Text style={s.formTitle}>Log Expense</Text>
@@ -328,7 +479,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
         <TextInput
           style={s.input}
           placeholder="$0.00"
-          placeholderTextColor={C.muted}
+          placeholderTextColor={T.muted}
           keyboardType="decimal-pad"
           value={logAmount}
           onChangeText={setLogAmount}
@@ -338,7 +489,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
         <TextInput
           style={s.input}
           placeholder="what was it?"
-          placeholderTextColor={C.muted}
+          placeholderTextColor={T.muted}
           value={logNote}
           onChangeText={setLogNote}
         />
@@ -368,10 +519,77 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
     </SafeAreaView>
   );
 
+  // ── SCAN REVIEW ───────────────────────────────────────
+  if (screen === 'scan_review') {
+    const categories = ['auto_payment', 'bill', 'expense', 'income', 'transfer'] as const;
+    const catLabels: Record<string, string> = {
+      auto_payment: 'AUTO PAYMENTS',
+      bill: 'BILLS',
+      expense: 'EXPENSES',
+      income: 'INCOME',
+      transfer: 'TRANSFERS',
+    };
+    const confColor: Record<string, string> = {
+      high: T.green, medium: T.accent, low: T.muted,
+    };
+
+    return (
+      <SafeAreaView style={s.bg}>
+        <StatusBar barStyle={T.mode === 'light' ? 'dark-content' : 'light-content'} />
+        <View style={s.histHeader}>
+          <Text style={s.histTitle}>STATEMENT</Text>
+          <TouchableOpacity onPress={() => { setScanResults([]); setScreen('home'); }}>
+            <Text style={s.back}>✕ CANCEL</Text>
+          </TouchableOpacity>
+        </View>
+        <ScrollView>
+          {categories.map(cat => {
+            const items = scanResults.filter(t => t.category === cat);
+            if (items.length === 0) return null;
+            return (
+              <View key={cat} style={s.scanSection}>
+                <Text style={s.scanCatLabel}>{catLabels[cat]}</Text>
+                {items.map((t, i) => (
+                  <View key={i} style={s.scanItem}>
+                    <View style={s.scanRow}>
+                      <Text style={s.scanMerchant}>{t.merchant}</Text>
+                      <Text style={[s.scanAmt, { color: t.amount < 0 ? T.red : T.green }]}>
+                        {t.amount < 0 ? '-' : '+'}${Math.abs(t.amount).toFixed(2)}
+                      </Text>
+                      <TouchableOpacity
+                        style={s.scanDelete}
+                        onPress={() => setScanResults(prev => prev.filter((_, j) => !(prev[j] === t && j === i)))}
+                      >
+                        <Text style={s.scanDeleteTxt}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={s.scanMeta}>
+                      <Text style={[s.scanConf, { color: confColor[t.confidence] }]}>
+                        {t.confidence.toUpperCase()}
+                      </Text>
+                      {t.is_recurring && (
+                        <Text style={[s.scanConf, { color: T.accent }]}>● RECURRING</Text>
+                      )}
+                      <Text style={[s.scanConf, { color: T.muted }]}>{t.envelope}</Text>
+                      {t.date && <Text style={[s.scanConf, { color: T.muted }]}>{t.date}</Text>}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            );
+          })}
+          <TouchableOpacity style={s.logAllBtn} onPress={logAllScanned}>
+            <Text style={s.logAllBtnText}>LOG ALL ({scanResults.filter(t => t.amount < 0).length} transactions)</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   // ── HISTORY ───────────────────────────────────────────
   return (
     <SafeAreaView style={s.bg}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={T.mode === 'light' ? 'dark-content' : 'light-content'} />
       <View style={s.histHeader}>
         <Text style={s.histTitle}>HISTORY</Text>
         <TouchableOpacity onPress={() => setScreen('home')}><Text style={s.back}>← BACK</Text></TouchableOpacity>
@@ -385,7 +603,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
             <View key={i} style={s.histCard}>
               <View style={s.histTop}>
                 <Text style={s.histEnv}>{env?.name || e.envelope_id}</Text>
-                <Text style={[s.histAmount, { color: env?.color || C.white }]}>-${parseFloat(e.amount).toFixed(2)}</Text>
+                <Text style={[s.histAmount, { color: env?.color || T.text }]}>-${parseFloat(e.amount).toFixed(2)}</Text>
               </View>
               {e.note ? <Text style={s.histNote}>{e.note}</Text> : null}
               <Text style={s.histDate}>{e.date}</Text>
@@ -397,54 +615,3 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
   );
 }
 
-const s = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: C.black },
-  paydayBanner: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, paddingBottom: 16, backgroundColor: C.dark, borderBottomWidth: 1, borderBottomColor: C.border },
-  paydayLabel: { fontSize: 10, color: C.muted, letterSpacing: 3, marginBottom: 2 },
-  paydayDays: { fontSize: 32, color: C.gold, fontWeight: '700', letterSpacing: 1 },
-  paydayRight: { alignItems: 'flex-end' },
-  header: { padding: 20, paddingBottom: 8 },
-  headerLabel: { fontSize: 10, color: C.muted, letterSpacing: 3 },
-  headerTitle: { fontSize: 42, color: C.white, fontWeight: '700', letterSpacing: 2 },
-  envelopeCard: { marginHorizontal: 16, marginBottom: 10, backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 16 },
-  envTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  envName: { fontSize: 14, color: C.white, fontWeight: '500' },
-  envRemaining: { fontSize: 14, color: C.green, fontWeight: '600' },
-  progressBg: { height: 4, backgroundColor: C.border, borderRadius: 2, marginBottom: 6, overflow: 'hidden' },
-  progressFill: { height: 4, borderRadius: 2 },
-  envBottom: { flexDirection: 'row', justifyContent: 'space-between' },
-  envSpent: { fontSize: 11, color: C.muted },
-  envBudget: { fontSize: 11, color: C.muted },
-  affordBtn: { margin: 16, marginBottom: 8, backgroundColor: C.gold, borderRadius: 14, padding: 20, alignItems: 'center' },
-  affordBtnText: { color: C.black, fontSize: 20, fontWeight: '700', letterSpacing: 1 },
-  actionRow: { flexDirection: 'row', gap: 10, marginHorizontal: 16, marginBottom: 32 },
-  actionBtn: { flex: 1, backgroundColor: C.card, borderRadius: 12, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: C.border },
-  actionBtnText: { color: C.white, fontSize: 14, fontWeight: '500' },
-  formContainer: { padding: 24 },
-  back: { fontSize: 12, color: C.muted, letterSpacing: 2, marginBottom: 20 },
-  formTitle: { fontSize: 36, color: C.white, fontWeight: '700', letterSpacing: 2, marginBottom: 28 },
-  formLabel: { fontSize: 10, color: C.muted, letterSpacing: 3, marginBottom: 8 },
-  input: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 14, fontSize: 16, color: C.white, marginBottom: 20 },
-  chipRow: { flexDirection: 'row', gap: 8, paddingRight: 16 },
-  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 },
-  chip: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.card, minWidth: 120 },
-  chipText: { fontSize: 13, color: C.white, fontWeight: '500' },
-  chipSub: { fontSize: 10, color: C.muted, marginTop: 2 },
-  askBtn: { backgroundColor: C.gold, borderRadius: 14, padding: 20, alignItems: 'center', marginBottom: 24 },
-  askBtnDim: { opacity: 0.4 },
-  askBtnText: { color: C.black, fontSize: 22, fontWeight: '700', letterSpacing: 3 },
-  resultCard: { backgroundColor: C.card, borderRadius: 16, borderWidth: 2, padding: 20, marginBottom: 24 },
-  resultAnswer: { fontSize: 32, fontWeight: '700', marginBottom: 12, letterSpacing: 2 },
-  resultText: { fontSize: 15, color: C.white, lineHeight: 22 },
-  logItBtn: { marginTop: 16, backgroundColor: C.green, borderRadius: 10, padding: 14, alignItems: 'center' },
-  logItBtnText: { color: C.black, fontSize: 16, fontWeight: '700' },
-  histHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: C.border },
-  histTitle: { fontSize: 36, color: C.white, fontWeight: '700', letterSpacing: 2 },
-  histCard: { backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 14, marginBottom: 8 },
-  histTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  histEnv: { fontSize: 14, color: C.white, fontWeight: '500' },
-  histAmount: { fontSize: 16, fontWeight: '700' },
-  histNote: { fontSize: 12, color: C.muted, marginBottom: 4 },
-  histDate: { fontSize: 10, color: C.muted },
-  empty: { textAlign: 'center', color: C.muted, fontSize: 14, paddingTop: 60, letterSpacing: 2 },
-});

@@ -107,6 +107,73 @@ export async function getSpotifyMe(accessToken: string) {
   return spotifyFetch('/me', accessToken) as Promise<{ id: string; display_name: string }>;
 }
 
+// ── PKCE TOKEN EXCHANGE & REFRESH ─────────────────────────────────────────────
+
+export async function exchangeCodeForTokens(
+  code: string,
+  codeVerifier: string,
+  redirectUri: string
+): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+    client_id: SPOTIFY_CLIENT_ID,
+    code_verifier: codeVerifier,
+  });
+  const resp = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  if (!resp.ok) throw new Error(`Token exchange failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function refreshSpotifyToken(
+  refreshToken: string
+): Promise<{ access_token: string; expires_in: number; refresh_token?: string }> {
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    client_id: SPOTIFY_CLIENT_ID,
+  });
+  const resp = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  if (!resp.ok) throw new Error(`Token refresh failed: ${resp.status}`);
+  return resp.json();
+}
+
+/** Returns a valid access token, auto-refreshing with PKCE refresh token if expired. */
+export async function getValidAccessToken(user: {
+  id: string;
+  spotify_access_token?: string | null;
+  spotify_refresh_token?: string | null;
+  spotify_token_expiry?: number | null;
+}): Promise<string | null> {
+  if (!user.spotify_access_token) return null;
+  // 60-second buffer before expiry
+  if ((user.spotify_token_expiry ?? 0) > Date.now() + 60000) {
+    return user.spotify_access_token;
+  }
+  if (!user.spotify_refresh_token) return null;
+  try {
+    const tokens = await refreshSpotifyToken(user.spotify_refresh_token);
+    await saveSpotifyTokens(
+      user.id,
+      tokens.access_token,
+      tokens.refresh_token ?? user.spotify_refresh_token,
+      tokens.expires_in
+    );
+    return tokens.access_token;
+  } catch {
+    return null;
+  }
+}
+
 export async function getHouseholdPlaylistId(houseName: string): Promise<string | null> {
   const { data } = await supabase
     .from('household_settings')

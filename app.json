@@ -2,6 +2,7 @@
   "expo": {
     "name": "tether",
     "slug": "tether",
+    "scheme": "tether",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -29,7 +30,14 @@
     },
     "plugins": [
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#c9a84c"
+        }
+      ]
     ],
     "extra": {
       "eas": {

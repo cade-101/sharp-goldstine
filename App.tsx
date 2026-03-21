@@ -4,15 +4,18 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { ActivityIndicator, View, Text } from 'react-native';
 import { UserProvider, useUser } from './src/context/UserContext';
 import AuthScreen from './src/screens/AuthScreen';
+import WarRoom from './src/screens/WarRoom';
 import WorkdayRhythm from './src/screens/WorkdayRhythm';
 import BudgetTracker from './src/screens/BudgetTracker';
 import FitnessScreen from './src/screens/FitnessScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import SignalButton from './src/components/SignalButton';
+import HouseholdSetupScreen from './src/screens/HouseholdSetupScreen';
 
 const Tab = createBottomTabNavigator();
 
 function MainApp() {
-  const { user, loading } = useUser();
+  const { user, loading, themeTokens } = useUser();
 
   if (loading) {
     return (
@@ -26,56 +29,70 @@ function MainApp() {
     return <AuthScreen />;
   }
 
-  const isForm = user.theme === 'form';
-  const fitnessLabel = user.fitnessLabel ?? (isForm ? 'FORM' : 'IRON');
+  if (!user.house_name) {
+    return <HouseholdSetupScreen />;
+  }
+
+  const fitnessLabel = user.fitnessLabel ?? themeTokens.name;
 
   return (
-    <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: isForm ? '#fdf6f0' : '#0a0a0a',
-          borderTopColor: isForm ? '#f0d8cc' : '#2a2a2a',
-        },
-        tabBarActiveTintColor: isForm ? '#e8748a' : '#c9a84c',
-        tabBarInactiveTintColor: isForm ? '#b8967e' : '#666666',
-      }}
-    >
-      <Tab.Screen
-        name="Workday"
-        component={WorkdayRhythm}
-        options={{
-          tabBarLabel: 'WORK',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>🎯</Text>,
+    <View style={{ flex: 1, backgroundColor: themeTokens.bg }}>
+      <Tab.Navigator
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: {
+            backgroundColor: themeTokens.bg,
+            borderTopColor: themeTokens.border,
+          },
+          tabBarActiveTintColor: themeTokens.accent,
+          tabBarInactiveTintColor: themeTokens.muted,
         }}
-      />
-      <Tab.Screen
-        name="Fitness"
-        component={FitnessScreen}
-        options={{
-          tabBarLabel: fitnessLabel,
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 18 }}>{isForm ? '🌸' : '💪'}</Text>
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Budget"
-        component={BudgetTracker}
-        options={{
-          tabBarLabel: 'BUDGET',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>💰</Text>,
-        }}
-      />
-      <Tab.Screen
-        name="Settings"
-        component={SettingsScreen}
-        options={{
-          tabBarLabel: 'SETTINGS',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>⚙️</Text>,
-        }}
-      />
-    </Tab.Navigator>
+      >
+        <Tab.Screen
+          name="WarRoom"
+          component={WarRoom}
+          options={{
+            tabBarLabel: 'WAR ROOM',
+            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>🎯</Text>,
+          }}
+        />
+        <Tab.Screen
+          name="Workday"
+          component={WorkdayRhythm}
+          options={{
+            tabBarLabel: 'WORK',
+            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>⏱</Text>,
+          }}
+        />
+        <Tab.Screen
+          name="Fitness"
+          component={FitnessScreen}
+          options={{
+            tabBarLabel: fitnessLabel,
+            tabBarIcon: ({ color }) => (
+              <Text style={{ color, fontSize: 18 }}>{themeTokens.mode === 'light' ? '🌸' : '💪'}</Text>
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="Budget"
+          component={BudgetTracker}
+          options={{
+            tabBarLabel: 'ARMORY',
+            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>💰</Text>,
+          }}
+        />
+        <Tab.Screen
+          name="Settings"
+          component={SettingsScreen}
+          options={{
+            tabBarLabel: 'SETTINGS',
+            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>⚙️</Text>,
+          }}
+        />
+      </Tab.Navigator>
+      <SignalButton />
+    </View>
   );
 }
 

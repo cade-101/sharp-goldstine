@@ -22,9 +22,14 @@ const C = {
 };
 
 const THEMES = [
-  { id: 'iron', label: 'IRON', sub: 'Dark · Gold · Brutal', color: '#c9a84c', bg: '#0a0a0a' },
-  { id: 'form', label: 'FORM', sub: 'Warm · Rose · Feminine', color: '#e8748a', bg: '#fdf6f0' },
-  { id: 'pulse', label: 'PULSE', sub: 'Clean · Navy · Modern', color: '#4a9eff', bg: '#0a0f1a' },
+  { id: 'iron',       label: 'IRON',       sub: 'Modern Military · Dark · Gold',          color: '#c9a84c', bg: '#0a0a0a' },
+  { id: 'ronin',      label: 'RONIN',      sub: 'Feudal Japan · Ink Black · Blood Red',   color: '#c41e3a', bg: '#060608' },
+  { id: 'valkyrie',   label: 'VALKYRIE',   sub: 'Norse · Deep Violet · Silver',           color: '#c0c8d8', bg: '#0d0618' },
+  { id: 'forge',      label: 'FORGE',      sub: 'Medieval · Stone · Firelight Red',       color: '#c0392b', bg: '#0d0908' },
+  { id: 'arcane',     label: 'ARCANE',     sub: 'Wizards · Deep Purple · Spell Gold',     color: '#7c4dff', bg: '#08060f' },
+  { id: 'dragonfire', label: 'DRAGONFIRE', sub: 'Dragons · Charcoal · Ember Orange',      color: '#f4511e', bg: '#0a0605' },
+  { id: 'void',       label: 'VOID',       sub: 'Sci-Fi · Near Black · Electric Blue',    color: '#00b0ff', bg: '#040608' },
+  { id: 'verdant',    label: 'VERDANT',    sub: 'Ranger · Deep Forest · Earth Gold',      color: '#4caf50', bg: '#060c08' },
 ];
 
 const GOALS = ['Build muscle', 'Lose fat', 'Get stronger', 'Just move', 'All of the above'];
@@ -40,6 +45,7 @@ const BODY_FOCUS = ['Glutes', 'Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Cor
 
 const BIOMETRIC_EMAIL_KEY = 'tether_bio_email';
 const BIOMETRIC_PASS_KEY = 'tether_bio_pass';
+export const EPHEMERAL_SESSION_KEY = 'tether_ephemeral_session';
 
 export default function AuthScreen() {
   const [mode, setMode] = useState<'login' | 'signup' | 'onboard'>('login');
@@ -47,6 +53,7 @@ export default function AuthScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [keepSignedIn, setKeepSignedIn] = useState(true);
 
   // Biometrics
   const [bioAvailable, setBioAvailable] = useState(false);
@@ -77,11 +84,17 @@ export default function AuthScreen() {
 
     if (compatible) {
       const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-      const hasFaceId = types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION);
-      setBioType(hasFaceId ? 'Face ID' : 'Touch ID');
+      const hasFingerprint = types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT);
+      // Fingerprint only — no Face ID
+      if (!hasFingerprint) {
+        setBioAvailable(false);
+        setBioEnrolled(false);
+        return;
+      }
+      setBioType('Fingerprint');
     }
 
-    setBioAvailable(compatible && !!savedEmail);
+    setBioAvailable(compatible && enrolled && !!savedEmail);
     setBioEnrolled(enrolled);
   }
 
@@ -112,6 +125,8 @@ export default function AuthScreen() {
     if (!bioEnrolled) return;
     const compatible = await LocalAuthentication.hasHardwareAsync();
     if (!compatible) return;
+    const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
+    if (!types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) return;
 
     Alert.alert(
       `Save with ${bioType}?`,
@@ -138,6 +153,11 @@ export default function AuthScreen() {
     if (error) {
       setError(error.message);
     } else {
+      if (!keepSignedIn) {
+        await SecureStore.setItemAsync(EPHEMERAL_SESSION_KEY, 'true');
+      } else {
+        await SecureStore.deleteItemAsync(EPHEMERAL_SESSION_KEY);
+      }
       await offerBiometricSave(email, password);
     }
     setLoading(false);
@@ -164,6 +184,11 @@ export default function AuthScreen() {
       userId = data.user!.id;
     }
 
+    if (!keepSignedIn) {
+      await SecureStore.setItemAsync(EPHEMERAL_SESSION_KEY, 'true');
+    } else {
+      await SecureStore.deleteItemAsync(EPHEMERAL_SESSION_KEY);
+    }
     setNewUserId(userId);
     setMode('onboard');
     setLoading(false);
@@ -214,7 +239,7 @@ export default function AuthScreen() {
 
           {bioAvailable && (
             <TouchableOpacity style={s.bioBtn} onPress={handleBiometricLogin}>
-              <Text style={s.bioBtnText}>{bioType === 'Face ID' ? '🔒' : '👆'}  Sign in with {bioType}</Text>
+              <Text style={s.bioBtnText}>👆  Sign in with Fingerprint</Text>
             </TouchableOpacity>
           )}
 
@@ -235,6 +260,13 @@ export default function AuthScreen() {
             onChangeText={setPassword}
             secureTextEntry
           />
+
+          <TouchableOpacity style={s.checkboxRow} onPress={() => setKeepSignedIn(v => !v)}>
+            <View style={[s.checkbox, keepSignedIn && s.checkboxChecked]}>
+              {keepSignedIn && <Text style={s.checkboxTick}>✓</Text>}
+            </View>
+            <Text style={s.checkboxLabel}>Keep me signed in</Text>
+          </TouchableOpacity>
 
           {error ? <Text style={s.error}>{error}</Text> : null}
 
@@ -493,4 +525,9 @@ const s = StyleSheet.create({
   focusChipText: { fontSize: 13, color: C.muted },
   focusChipTextActive: { color: C.gold, fontWeight: '600' },
   notesLabel: { fontSize: 11, color: C.muted, letterSpacing: 2, marginBottom: 10 },
+  checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: C.border, backgroundColor: C.card, alignItems: 'center', justifyContent: 'center' },
+  checkboxChecked: { borderColor: C.gold, backgroundColor: '#1a1608' },
+  checkboxTick: { fontSize: 13, color: C.gold, fontWeight: '700' },
+  checkboxLabel: { fontSize: 14, color: C.muted, letterSpacing: 0.5 },
 });

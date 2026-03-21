@@ -1,5 +1,5 @@
 # TETHER — BUILD JOURNAL
-*Last updated: March 19, 2026 (Session 10)*
+*Last updated: March 20, 2026 (Session 19)*
 
 ---
 
@@ -199,63 +199,104 @@ A mass-market family operating system built specifically for ADHD households. No
 ## BUILD STATUS
 
 ### Infrastructure
-- ✅ Expo app scaffolded (SDK 55, TypeScript) — running live on Cade's Android via Expo Go
-- ✅ VS Code set up with folder structure (src/screens, src/lib, src/components)
-- ✅ Supabase project created (WestSideSanders, Canada Central)
-- ✅ Supabase client connected (src/lib/supabase.ts)
-- ✅ RLS disabled for development
-- ✅ Google Calendar API enabled + OAuth 2.0 credentials created
-- ✅ Java + Homebrew installed on Mac
-- ✅ Debug keystore generated (SHA-1 fingerprint registered in Google Cloud)
-- ⬜ Expo Go on D's phone (old version, needs fresh APK install)
-- ⬜ Bottom tab navigation shell
+- ✅ Expo app scaffolded (SDK 55, TypeScript)
+- ✅ Supabase project (WestSideSanders, Canada Central) — client connected
+- ✅ RLS disabled for development (must enable before public launch)
+- ✅ Google Calendar API enabled + OAuth 2.0 credentials
+- ✅ Java + Homebrew + Watchman installed on Mac
+- ✅ EAS build configured — `eas build --platform android --profile preview`
+- ✅ `"scheme": "tether"` in app.json (required for Linking / OAuth)
+- ✅ expo-notifications plugin added to app.json
 - ⬜ Google Calendar fully wired into app
+- ⬜ D's phone — install Session 14 APK when build completes (Session 13 build `53b48c7e` shipped)
 
 ### Screens Built
 - ✅ **Workday Rhythm** (`src/screens/WorkdayRhythm.tsx`)
   - Brain state check-in: Locked in / Okay / Scattered / Toast
-  - 52-minute focus timer with auto-switch to 17-min break
-  - Block counter
-  - Saves brain_state + blocks_completed to Supabase `workday_sessions` table
-- ✅ **FitnessScreen** (`src/screens/FitnessScreen.tsx`) — replaces GymScreen + GymScreenD
-  - Single screen, all modes inside: LFG / Beast Mode / Quick Hits / Joint Ops
-  - IRON (dark/gold) + FORM (rose/warm) themes driven by `user.theme`
-  - Anthropic-powered: `session_start`, `set_completed`, `exercise_skipped`, `session_end` events
-  - Auto rest timer, EffortSelector (4 chips), PR badge, adjustments card, sneaky cardio prompt
-  - Hard stop picker (45/60/75/90 min chips), mode grid on home screen
-  - All data keyed to `user.id` — Feu Follet compliant
-- ✅ **EffortSelector** (`src/components/EffortSelector.tsx`)
-  - 2×2 chip grid: Too easy / Shaky / Grind but good / That felt like shit
-  - `accentColor` prop for IRON/FORM theming
-- ✅ **AuthScreen** (`src/screens/AuthScreen.tsx`) — full Feu Follet rewrite (Session 8)
+  - 52-min focus / 17-min break timer — fires notification + vibration through locked screen
+  - AppState listener keeps JS timer alive in background
+  - Saves to `workday_sessions` table
+  - Theme tokens from UserContext
+- ✅ **FitnessScreen** (`src/screens/FitnessScreen.tsx`)
+  - Modes: PLAN / LFG / BEAST / QUICK HITS / JOINT OPS
+  - Theme tokens from UserContext (IRON / FORM / RONIN / VALKYRIE)
+  - Anthropic-powered: session_start, set_completed, exercise_skipped, session_end
+  - Auto rest timer, EffortSelector, PR badge, adjustments card, sneaky cardio prompt
+  - Hard stop picker, week strip, recent PRs feed, Send Props button
+  - Spotify widget (connect → playlist → add track)
+  - Props inbox with unseen badge
+- ✅ **BudgetTracker / The Armory** (`src/screens/BudgetTracker.tsx`)
+  - Envelope budgeting (7 envelopes), payday countdown, "Can I afford this?" AI
+  - 📸 Scan statement: expo-image-picker → Anthropic vision → parsed transactions
+  - Scan review: grouped by category, confidence badges, delete-per-row, Log all
+  - Committed bills: recurring auto-pays saved to `committed_bills`, summed on home screen
+  - Theme tokens from UserContext
+- ✅ **AuthScreen** (`src/screens/AuthScreen.tsx`)
   - Auto-generated codename (generateUsername) with reroll
-  - Password always required; email optional, labelled clearly
-  - Biometrics: Face ID / Touch ID via expo-local-authentication + expo-secure-store
+  - "Keep me signed in" toggle (checked by default) — ephemeral flag in SecureStore
+  - Biometrics: Face ID / Touch ID via expo-local-authentication
   - Anonymous auth path (no email → signInAnonymously)
-- ✅ **BattleMode** (`src/screens/BattleMode.tsx`) — ⚠️ LEGACY, pending redesign
-  - Still queries `gym_sessions` with hardcoded `athlete` strings — Feu Follet violation
-  - Scheduled for full redesign (see TODO)
-- ✅ **Bottom tab navigation** (Work / Fitness / Budget)
+  - Fully Feu Follet compliant
+- ✅ **SettingsScreen** (`src/screens/SettingsScreen.tsx`)
+  - "DELETE ALL MY DATA" — cascade delete, works offline (pending delete queue)
+  - VALKYRIE grant for spectre.labs admin
+  - HOUSEHOLD section — join by name (links to partner), leave household button
+- ✅ **JointOps** (`src/screens/JointOps.tsx`)
+  - Invite flow → household_events → both join → fitness-engine joint_ops_start
+  - Real-time scoreboard (Supabase postgres_changes)
+  - Shit talk + props buttons, winner/loser/tied completion screen
+- ✅ **VSScreen** (`src/components/VSScreen.tsx`)
+  - Split-screen animation (split → fill → names → stats → mode label → BEGIN)
+  - Per-theme colours, rank diff glow, CHALLENGER badge, Ghost Protocol variant
+- ✅ **HouseholdSetupScreen** (`src/screens/HouseholdSetupScreen.tsx`)
+  - Fires on first open when `house_name` is null. Asks about the crew → Claude generates 3 call sign suggestions → user picks or types own → saves to user_profiles + household_settings
+- ✅ **RoninInkWash / RoninPRCelebration / RoninRankUp** — RONIN theme animations
+- ✅ **ValkyrieLightning / ValkyriePRCelebration** — VALKYRIE theme animations
+- ✅ **EffortSelector** (`src/components/EffortSelector.tsx`) — 2×2 RPE chip grid
+- ✅ **WarRoom** (`src/screens/WarRoom.tsx`) — command center home screen. Clock + themed greeting, **INTEL DROP button** (receipt scanner → auto-routes to pantry/household/finance), **Grocery Nudge cards** (deal alerts), Brain State check-in (4 states → user_context_snapshots), Today's Missions (3 editable slots), Incoming Signals (unread props from partner), Allied Forces (partner name/theme/link status), Quick Access row. Theme-aware via UserContext.
+- ✅ **SignalButton** (`src/components/SignalButton.tsx`) — floating 📡 FAB, bottom-right above tab bar. Tap → slide-up bottom sheet. 8 default signals + custom signal input (saved to household_settings.signal_library). Sends to partner via props table (event_type: 'signal'). Dismissed individually in WarRoom Incoming Signals panel.
+- ⚠️ **BattleMode** (`src/screens/BattleMode.tsx`) — LEGACY, queries `gym_sessions` with hardcoded athlete strings. Remove after legacy tables dropped.
 
 ### Supabase Tables
-- ✅ `workday_sessions` — id, created_at, brain_state, blocks_completed, date
-- ✅ `workout_sessions` — id, user_id, started_at, ended_at, label, mode, planned_by_ai
+- ✅ `workday_sessions` — brain_state, blocks_completed, date
+- ✅ `workout_sessions` — user_id, started_at, ended_at, label, mode, planned_by_ai
 - ✅ `exercise_performance` — session_id, exercise_name, set_index, weight, reps, effort, is_pr
-- ✅ `user_profiles` — id, username, theme, goals, training_days, equipment, body_focus, notes, house_name, kids_themes
-- ⚠️ `gym_sessions` — legacy table, still used by BattleMode. Pending removal after Battle Mode redesign.
-- ⚠️ `gym_profiles` — legacy table. Pending removal.
+- ✅ `user_profiles` — id, username, theme, athlete, goals, training_days, equipment, body_focus, house_name, kids_themes, spotify fields, valkyrie_seen, **rank (integer, default 1)**
+- ✅ `budget_expenses` — user_id, envelope_id, amount, note, date
+- ✅ `committed_bills` — user_id, merchant, amount, due_day, account, is_auto_pay, envelope_id, last_seen
+- ✅ `user_context_snapshots` — user_id, brain_state, captured_at (+ cached context payload)
+- ✅ `household_settings` — house_name, shit_talk_library, **signal_library (jsonb, default '[]')**
+- ✅ `props` — from_user, to_user, message, event_type, seen
+- ✅ `household_events` — house_name, event_type, payload, triggered_by
+- ⚠️ `gym_sessions` — legacy. Pending removal after BattleMode redesign.
+- ⚠️ `gym_profiles` — legacy. Pending removal.
 
 ### Supabase Edge Functions
-- ✅ `fitness-engine` — live at `https://rzutjhmaoagjdrjefvzh.supabase.co/functions/v1/fitness-engine`
-  - Handles: session_start, set_completed, exercise_skipped, session_end
-  - Calls Anthropic (claude-sonnet-4-20250514) for live plan adaptation
-  - PR detection server-side via exercise_performance history
-  - Fallback plans (Mon–Fri) if Anthropic unavailable
+- ✅ `fitness-engine` — handles session_start, set_completed, exercise_skipped, session_end, joint_ops_start
+  - Anthropic (claude-sonnet-4-20250514) for live plan adaptation
+  - PR detection server-side, daily context snapshot (getUserContext with 24h cache)
   - `ANTHROPIC_API_KEY` set as Supabase secret ✅
 
-### Pending Modules
-- ⬜ Budget Tracker ("can I afford this?" AI feature)
-- ⬜ Expo Go on D's phone
+### Theme System
+- ✅ `src/themes/` — iron.ts, form.ts, ronin.ts, valkyrie.ts, forge.ts, arcane.ts, dragonfire.ts, void.ts, verdant.ts + index.ts
+- ✅ `ThemeTokens` type — standard shape across all themes: bg, dark, card, border, accent, accentDim, accentBg, gold, text, muted, green, red, blue, mode, name
+- ✅ `getTheme(themeName)` — exported from themes/index.ts
+- ✅ `themeTokens` exposed via UserContext — computed from user.theme, defaults to IRON
+- ✅ All screens use context, zero hardcoded per-screen colour objects
+
+### Pending
+- ✅ Session 13 EAS build — shipped `53b48c7e`
+- ✅ Session 14 EAS build — shipped `2ff3ca3e`
+- ✅ Spotify Client ID — pasted, PKCE OAuth live
+- ⬜ Spotify redirect URI — add `tether://spotify` in Spotify Developer Dashboard → app → Redirect URIs
+- ⬜ Flyer deal ingestion — seed `flyer_deals` table (manual CSV or flyer API) before nudges fire in prod
+- ⬜ WarRoom missions persistence — currently in-memory; wire to Supabase or AsyncStorage
+- ⬜ Pantry / household inventory screen — UI to browse pantry_items + household_items ("Did we buy that?")
+- ⬜ Consumption pattern engine — estimate `estimated_empty_at` from avg_purchase_interval in household_item_preferences
+- ⬜ Google Calendar wired in
+- ⬜ RLS enabled on all tables (before public launch)
+- ⬜ Push token storage (add `push_token` column to `user_profiles`) — enables real push delivery for SignalButton
+- ⬜ WarRoom missions persistence (currently in-memory, wire to Supabase or AsyncStorage)
 
 ---
 
@@ -571,10 +612,192 @@ Time-series and correlation analysis per user:
   - Offline safety: queues user_id in `tether_pending_delete` SecureStore key, flushed on next sign-in
   - `deleteAccount()` in UserContext — exposed via context, available anywhere
 
+### Session 11 — March 19, 2026 (tonight)
+- Spotify developer app created, Client ID + Secret added to config.ts
+- Fresh EAS build queued for D's phone
+- Fitness mode definitions finalized: PLAN / LFG / BEAST / QUICK HITS / JOINT OPS / GHOST PROTOCOL
+- Battle Mode full redesign spec locked: JOINT OPS + GHOST PROTOCOL
+- Spectre Labs Master Context converted to .md
+- Supabase migrations: username, house_name, kids_themes columns added to user_profiles
+- Legacy athlete: 'danielle' record deleted
+- Claude Code build plan written for: mode grid fix, PR feed, Props wiring, Joint Ops, Spotify
+
+*(Session 12 plan executed — see Session 12 log below)*
+
+### Session 12 — March 20, 2026
+- ✅ FitnessScreen rebuilt from scratch — replaced GymScreen.tsx + GymScreenD.tsx with single multi-theme screen
+- ✅ Modes: PLAN / LFG / BEAST / QUICK HITS / JOINT OPS — all wired
+- ✅ Fixed 19x Linking warnings — moved `makeRedirectUri` call to module scope, outside component
+- ✅ Added `"scheme": "tether"` to app.json — required for Linking/OAuth in production builds
+- ✅ Added expo-notifications plugin to app.json
+- ✅ EAS build `3f8dd0da` — shipped to D's phone
+- ✅ Cade's IRON: LFG, Beast Mode, shit talk fires
+
+### Session 13 — March 20, 2026
+**Task 1 — Theme System**
+- ✅ `src/themes/iron.ts` — IRON theme tokens (dark/gold)
+- ✅ `src/themes/form.ts` — FORM theme tokens (light/rose)
+- ✅ `src/themes/ronin.ts` — updated with standard token fields + backward-compat for RoninInkWash
+- ✅ `src/themes/valkyrie.ts` — updated with standard token fields
+- ✅ `src/themes/index.ts` — `ThemeTokens` type + `getTheme(name)` function
+- ✅ `UserContext.tsx` — added `themeTokens: ThemeTokens` computed from user.theme, exposed via context
+- ✅ All screens migrated to context tokens: FitnessScreen, WorkdayRhythm, BudgetTracker, App.tsx
+- ✅ Budget tab renamed to ARMORY
+**Task 2 — Bank Statement Scanner**
+- ✅ `src/lib/parseFinancialImage.ts` — expo-image-picker → base64 → Anthropic vision API → JSON parse
+- ✅ BudgetTracker: "Scan statement" button → `scan_review` screen (group by category, confidence badges, delete per row, Log all)
+- ✅ `logAllScanned()` — expenses to `budget_expenses`, recurring auto-payments to `committed_bills`
+- ✅ COMMITTED (auto-pay) total displayed on BudgetTracker home
+- ✅ EAS build `53b48c7e` — queued and shipped ✅
+
+### Session 14 — March 20, 2026
+- ✅ `rank integer default 1` added to `user_profiles` (Supabase migration)
+- ✅ `signal_library jsonb default '[]'` added to `household_settings` (Supabase migration)
+- ✅ `src/screens/WarRoom.tsx` — command center home screen
+  - Clock + themed greeting (per theme, per time of day: morning / afternoon / evening)
+  - Brain State check-in: LOCKED IN / DRIFTING / FLOW STATE / EMERGENCY → saves to `user_context_snapshots`
+  - Today's Missions: 3 editable inline slots (tap to edit, inline TextInput)
+  - Incoming Signals: unread props (event_type='signal') from partner, dismiss individually
+  - Allied Forces: partner name, theme, linked status (queried by house_name)
+  - Quick Access: 4 buttons to navigate to WORK / FIT / ARMORY / SETTINGS tabs
+- ✅ `src/components/SignalButton.tsx` — floating 📡 FAB, bottom-right, above tab bar
+  - Animated slide-up bottom sheet (Animated.spring)
+  - 8 default signals + custom signal input (saved to household_settings.signal_library)
+  - Sends to partner via props table (event_type='signal')
+  - No partner found → Alert to link household in Settings
+- ✅ App.tsx — WAR ROOM added as first tab (🎯), `<SignalButton />` rendered above tab navigator
+- ✅ Zero TypeScript errors
+- ✅ EAS build `2ff3ca3e` — shipped ✅
+
+### Session 15 — March 20, 2026
+**Spotify OAuth — PKCE upgrade**
+- ✅ `SPOTIFY_CLIENT_ID` pasted into `src/lib/config.ts` — OAuth now live
+- ✅ Upgraded from implicit flow (`ResponseType.Token`) to PKCE (`ResponseType.Code` + `usePKCE: true`)
+  - Implicit flow gave 1-hour tokens with no refresh; PKCE gives refresh tokens that auto-renew
+- ✅ `exchangeCodeForTokens(code, codeVerifier, redirectUri)` added to spotifyService.ts — exchanges PKCE auth code for access + refresh token via Spotify token endpoint (no client secret needed)
+- ✅ `refreshSpotifyToken(refreshToken)` — calls Spotify token endpoint with refresh_token grant
+- ✅ `getValidAccessToken(user)` — checks expiry (60s buffer), auto-refreshes if needed, saves new tokens to Supabase
+- ✅ FitnessScreen: `spotifyToken` local state — decoupled from UserContext, survives refresh without page reload
+- ✅ On mount: calls `getValidAccessToken` to restore session from stored tokens, auto-refreshing expired ones
+- ✅ `isSpotifyConnected` now checks local `spotifyToken` + expiry timestamp (not just existence of stored token)
+- ✅ `handleSpotifySearch`, `addTrack`, `syncWithPartner` — all use local `spotifyToken` state
+- ✅ Zero TypeScript errors
+- ✅ EAS build `683122da` — shipped ✅
+- **ACTION REQUIRED**: In Spotify Developer Dashboard → app settings → Redirect URIs, add: `tether://spotify`
+
+### Session 16 — March 20, 2026
+**Supabase migrations**
+- ✅ `purchase_history` — where household shops per item (user_id, store, item_category, price_paid, purchased_at)
+- ✅ `household_item_preferences` — inferred "usual store per item", avg interval (updated by engine)
+- ✅ `flyer_deals` — sale data (store, item, sale_price, regular_price, discount_pct computed, postal_code_prefix)
+- ✅ `grocery_nudges` — smart nudges surfaced to user (dismissible, reason text)
+- ✅ `pantry_items` — food tracker (name, category, quantity, unit, location: fridge/freezer/pantry, estimated_empty_at)
+- ✅ `household_items` — inventory for non-food (toys, cleaning, etc., tagged_to: andy/pax/hendrix/home)
+- ✅ `intel_drops` — receipt audit log (image_url, raw_anthropic_response, processed, routed_to[])
+- ✅ Supabase Storage bucket: `intel-drops` (private)
+
+**Grocery Nudge engine**
+- ✅ `src/lib/groceryNudge.ts` — pure logic layer: `shouldNudge()` + `computeNudges()`
+  - Fires when: item due in ±7 days AND ≥30% off AND budget has room (envelope > bills × 1.2)
+  - Also fires for ≥40% off regardless of timing (worth stocking up)
+  - Sorted by discount descending
+- ✅ `src/components/GroceryNudgeCard.tsx` — theme-aware dismissible card with item name, store, discount %, sale price, reason
+
+**INTEL DROP — one button, zero thinking**
+- ✅ `intel-processor` Edge Function deployed (ACTIVE, v1)
+  - Receives: imageUrl (Supabase Storage path), userId, householdId
+  - Downloads image from `intel-drops` bucket → sends base64 to Anthropic Vision (claude-sonnet-4)
+  - Extraction prompt: classifies every line item (is_food, is_household_item, location, tagged_to)
+  - Routes:
+    - Food items → `pantry_items`
+    - Household items → `household_items` (tagged to andy/pax/hendrix/home)
+    - All items → `purchase_history`
+    - Receipt total → `budget_expenses` (groceries envelope, negative amount)
+    - Raw response → `intel_drops` audit log
+  - Returns: { itemsLogged, routedTo[], store, total }
+- ✅ WarRoom — INTEL DROP button (gold-bordered, prominent above Brain State)
+  - Requests photo library permission → ImagePicker → upload to Supabase Storage → call Edge Function
+  - Shows "Analyzing receipt..." spinner during processing
+  - Shows result summary: "✓ 12 items logged from Superstore → pantry, household_items, finance"
+- ✅ WarRoom — INTEL — DEALS DETECTED section (shows active grocery nudges, dismissible inline)
+- ✅ Zero TypeScript errors
+- ✅ EAS build `6578caf3` — shipped ✅
+
+### Session 17 — March 20, 2026
+**Auth + theme fixes**
+- ✅ `src/lib/supabase.ts` — root cause fix for "Keep me signed in" not working
+  - Was: `createClient` with no storage → React Native has no `localStorage`, sessions never persisted
+  - Now: `AsyncStorage` as storage adapter, `autoRefreshToken: true`, `persistSession: true`
+- ✅ `src/screens/AuthScreen.tsx` — 3 fixes:
+  - THEMES array now includes all 4: IRON, RONIN, FORM, VALKYRIE (was missing RONIN, had non-existent "pulse")
+  - Biometrics: fingerprint-only via `supportedAuthenticationTypesAsync()` check — hides biometric path if device only has Face ID
+  - `handleSignup` keepSignedIn fix: sets/clears ephemeral session key on signup too (not just sign-in)
+
+**Theme animations wired in FitnessScreen**
+- ✅ `RoninInkWash` fires on session start (`setScreen('workout')`) for Ronin theme users
+- ✅ `RoninPRCelebration` replaces standard PR celebration for Ronin theme
+- ✅ `ValkyriePRCelebration` replaces standard PR celebration for Valkyrie theme
+- ✅ Iron + Form themes continue to use standard `PRCelebration` (with exercise details + send props)
+
+- ✅ Zero TypeScript errors
+- ✅ EAS build queued
+
+### Session 18 — March 20, 2026
+**Household Setup Screen**
+- ✅ `src/screens/HouseholdSetupScreen.tsx` — fires automatically on first open when `user.house_name` is null
+  - Step 1: Text input — "Tell us about your crew" (kids names, ages, what they're into)
+  - Step 2: Calls Anthropic API (`claude-sonnet-4-20250514`) → generates 3 creative household call sign suggestions based on kids' interests
+  - Step 3: Pick screen — 3 tappable suggestion cards + "Something else..." option with free-text input
+  - Confirm → saves to `user_profiles.house_name` + upserts `household_settings` row
+  - Fully theme-aware (uses `themeTokens` from UserContext)
+- ✅ `src/context/UserContext.tsx` — added `refreshUser()` — re-fetches profile from Supabase, updates user state without requiring auth state change
+- ✅ `App.tsx` — wired: `if (!user.house_name) return <HouseholdSetupScreen />` — fires before main tab nav
+
+**War Era Theme System**
+- ✅ `src/themes/forge.ts` — FORGE: Medieval / Swords & Shields — stone, iron, firelight red, parchment
+- ✅ `src/themes/arcane.ts` — ARCANE: Wizards & Mages — deep purple, arcane violet, spell-glow gold
+- ✅ `src/themes/dragonfire.ts` — DRAGONFIRE: Dragons / High Fantasy — charcoal, ember orange, dragon gold
+- ✅ `src/themes/void.ts` — VOID: Sci-Fi / Future War — near-black, electric blue, holographic teal
+- ✅ `src/themes/verdant.ts` — VERDANT: Nature / Druid / Ranger — deep forest green, earth brown, earth gold
+- ✅ `src/themes/index.ts` — all 5 new themes registered in `getTheme()`, exported
+- ✅ `src/screens/AuthScreen.tsx` — THEMES picker updated: IRON, RONIN, VALKYRIE, FORGE, ARCANE, DRAGONFIRE, VOID, VERDANT (8 total). FORM removed from picker, kept in codebase for backward compat.
+
+**Build situation**
+- ⛔ EAS cloud quota exhausted for the month — resets April 1, 2026
+- ⛔ Local build attempted — failed: Java 25 installed (too new for Gradle). Fixed: `brew install openjdk@17`
+- ⛔ Local build still failed — Android SDK not installed (all previous builds were EAS cloud)
+- ✅ Decision: install Android Studio → bundles SDK → local builds work forever after, no cloud dependency
+- ✅ Android Studio installed — SDK at `~/Library/Android/sdk`
+- ✅ Local build working: `ANDROID_HOME=~/Library/Android/sdk JAVA_HOME=/opt/homebrew/opt/openjdk@17 eas build --platform android --profile preview --local`
+- ✅ First successful local build — APK `build-1774064919843.apk` (69.8 MB)
+- ✅ Cade's `user_profiles.theme` fixed from `iron` → `ronin` directly in Supabase
+
+### Session 19 — March 20, 2026
+**Household Join flow**
+- ✅ `src/screens/SettingsScreen.tsx` — HOUSEHOLD section added:
+  - No house_name: shows text input + JOIN HOUSEHOLD button → saves to `user_profiles.house_name` + upserts `household_settings`, calls `refreshUser()`
+  - Has house_name: shows linked name + "Leave household" button (sets house_name to null, keeps partner's household intact)
+- ✅ Zero TypeScript errors
+- ✅ Local build — APK `build-1774066663110.apk` shipped ✅
+
+**Household linking flow (how it works)**
+1. D creates account → HouseholdSetupScreen fires → picks a call sign → saved to her profile
+2. D tells Cade the name
+3. Cade → Settings → HOUSEHOLD → types the name → JOIN HOUSEHOLD
+4. Both profiles share `house_name` → WarRoom Allied Forces, JointOps, shit talk, Signal Button all active
+
+**Call sign prompt upgrade**
+- ✅ `HouseholdSetupScreen` — Claude prompt rewritten to force deeper cuts
+  - Kills the obvious mashup ("if it could belong to any family with a hockey kid, it's not good enough")
+  - Opens vocabulary: scientific terms, eras, mythology, sports slang, Latin
+  - Mental model shifted: band name / unit patch, not a username
+  - Bad: `ThePuckPack`, `DinoLabHQ` → Good: `CretaceousEnforcers`, `VelociraptorLineChange`, `BrickAndBoneUnited`
+
 ### Immediate (next build session)
-1. **Spotify** — add Client ID to config.ts, test OAuth flow, shared playlist, add-track, partner sync. Infrastructure already built.
-2. **Budget Tracker** — envelope budgeting, no bank access, "can I afford this?" AI.
-3. **Test on devices** — D's phone (FORM, full session, Joint Ops invite), Cade's (IRON, LFG, PR detection, shit talk)
+1. **Workday Rhythm background timer + audio** — CRITICAL, fix first
+2. **Spotify** — wire Client ID, test full flow
+3. **"Thinking of You" button** — defaults + library
+4. **Test on both phones — D joins, names the crew, Cade links via Settings**
 
 ### Architecture (before public launch)
 - **user_event table** — event-first data model for long-horizon pattern detection
@@ -594,12 +817,7 @@ Time-series and correlation analysis per user:
 - Nightmare watch buzz (future, clinical oversight required)
 
 - First login → onboarding flow → everything saved to account
-- D logs in → sees FORM. Cade logs in → sees IRON. Mass market user → sees their own program.
-
-### Aesthetic Themes (3 options at onboarding)
-- **IRON** — Cade's current dark/gold/brutal aesthetic
-- **FORM** — D's current warm rose/cream/feminine aesthetic  
-- **PULSE** — New option: clean, minimal, modern. Dark navy + electric blue. Athletic but not aggressive. Works for anyone.
+- Mass market user → sees their own program.
 
 ### Onboarding Flow (snappy — max 90 seconds)
 Keep it moving, never lose them. 5 quick screens:
@@ -808,7 +1026,86 @@ Display:
 
 ---
 
-## BUDGET MODULE — FULL VISION
+## BUDGET MODULE — RECEIPT SCANNING + GRADUAL FINANCIAL ONBOARDING
+
+### Core Philosophy
+Shame is the #1 barrier to financial health for ADHD brains. Never show the full picture until they're ready. Build trust month by month. One question at a time. No lectures. No judgment.
+
+### Receipt + Screenshot Scanning
+- Camera button on Budget home screen — tap to photograph receipt or screenshot
+- AI reads: merchant, total, line items, date
+- Auto-categorizes to envelope (groceries, fuel, entertainment, etc.)
+- Asks "Does this look right?" → one tap confirm or adjust
+- Over time learns user's common merchants → auto-confirms without asking
+- Bank statement screenshots: AI reads transactions, logs to appropriate envelopes
+- E-transfer confirmations: logs payment, updates committed bills tracker
+- No bank access ever — trust-based, receipt/screenshot only
+
+### Monthly Financial Check-in (Gradual Disclosure Model)
+- Short questionnaire, once a month, never the same questions twice
+- Rotates through categories so nothing feels like an interrogation
+- AI tracks what's been asked and answered, builds the picture slowly over time
+- User adds debt/expenses over multiple months — never forced to see the full picture at once
+
+**Question categories (rotated monthly, 2-3 questions max):**
+- Income: "Did your income change this month?"
+- Bills: "Any new recurring bills? Anything cancelled?"
+- Debt: "Any debt you want to add to track? (credit card, loan, etc.)" — optional, never required
+- Goals: "Anything you're saving toward right now?"
+- Wins: "Any financial win this month, even small?"
+- Stress: "How's money stress feeling this month? (just to calibrate)"
+
+**Key rules:**
+- Never ask about total debt directly in month 1
+- Never show a full debt summary until user has voluntarily added 3+ items over time
+- Each piece of info they add = more accurate envelope recommendations
+- AI notices patterns: "You've added 3 credit cards over the past 3 months — want to see a simple payoff plan?" (user's choice)
+- Snowball method suggested gently when enough debt is entered, never pushed
+
+### Auto-Squirrel + Transfer Instructions
+
+**The core behavior:**
+Tether tells you exactly when and where to move money. No decisions required. Just follow the instructions.
+
+**Payday sequence (every 2nd Friday):**
+1. Notification at midnight when pay lands: "Payday 💰 — here's what to move and when"
+2. Step-by-step transfer instructions, in order:
+   - "Move $630 KOHO → Tangerine before 10am (truck payment hits at 10)"
+   - "Move $X to emergency buffer (Tangerine savings)"
+   - "Move $X to vehicle maintenance buffer"
+   - "Move $X to debt snowball target this month"
+   - "Remaining $X = your spending envelopes for this period"
+3. Each step has a checkbox — tap when done
+4. Reminder fires 10 min after morning alarm if steps aren't checked off
+
+**Buffer accounts:**
+- Emergency buffer: target $1,000 → 3 months expenses (long term)
+- Vehicle maintenance: $0.02/km driven auto-squirrel
+- Irregular bills buffer: annual bills (insurance, registration) divided by 12, set aside monthly
+- "Oh shit" buffer: $50-100/payday, never touched unless truly needed
+
+**Snowball method:**
+- User enters debts one at a time over multiple months (gradual disclosure — no shame)
+- App ranks by balance (smallest first = snowball) or interest rate (highest first = avalanche)
+- Each payday: calculates minimum payments on all debts + extra attack on smallest
+- Shows one number: "Send $X to [debt name] this payday"
+- Never shows the full debt picture until user is ready — just "here's the move for this week"
+- Celebrates each payoff: "You killed the [debt name]. That payment now goes to [next debt]."
+- Momentum is the product — not spreadsheets
+
+**What the user sees:**
+Not a dashboard. Not charts. Just: "Here's what to do today." One action at a time. ADHD-friendly. No overwhelm.
+
+**Transfer reminder system:**
+- Timed to wake-up alarm + 10 min (not the bill time)
+- "Transfer $630 KOHO → Tangerine. Truck payment hits in 3 hours."
+- If not confirmed by 9am → escalating reminder
+- Once confirmed → done. No more nagging about that payment.
+- After 1 month of receipt scanning → AI has enough data to suggest envelope amounts
+- "Based on what you've been spending, here's what I'd suggest for next month" → user adjusts and confirms
+- Committed bills always subtracted first before envelopes populate
+- AI notices patterns: "You've gone over groceries 3 months in a row by ~$40 — want to adjust?"
+- Never adjusts without asking — always proposes, user confirms
 
 ### The Core Idea
 Tether has no access to bank accounts. It's trust-based — user enters starting balances, bills, and income manually or via receipt/screenshot uploads. The app becomes a financial brain that runs interference so ADHD doesn't cost money.
@@ -1081,7 +1378,462 @@ Tether AI never lectures. It never shames. It notices, suggests, and gets out of
 
 ---
 
-## MARKETING & BRAND POSITIONING
+## THEME SYSTEM — WAR ERA THEMES
+
+### The Big Idea
+Every theme is a war era. You don't just pick a color scheme — you choose your world, earn your rank, and your behavior determines how deep into it you go. Consistent at the gym = you level up. Crushing PRs = new gear unlocks. Financial discipline = your war chest grows.
+
+The app isn't a productivity tool. It's a campaign. You're the commander.
+
+### War Era Themes
+
+| THEME | ERA | AESTHETIC | VIBE |
+|-------|-----|-----------|------|
+| **IRON** | Modern Military / Black Ops | Dark, tactical, gold accents, night vision green | You move in silence. You get the job done. |
+| **FORGE** | Medieval / Swords & Shields | Stone, iron, deep red, firelight | The stronghold. Built brick by brick. |
+| **RONIN** | Feudal Japan / Samurai | Ink black, blood red, cherry blossom accent | Discipline. Precision. No wasted movement. |
+| **ARCANE** | Wizards & Mages / Fantasy War | Deep purple, arcane blue, spell-glow gold | Knowledge is power. Strategy over strength. |
+| **DRAGONFIRE** | Dragons / High Fantasy | Charcoal, ember orange, scales texture | Unleashed. Raw. Unstoppable. |
+| **VOID** | Sci-Fi / Future War | Near-black, electric blue, holographic | You're operating 10 steps ahead. |
+| **VERDANT** | Nature / Druid / Ranger | Deep forest green, earth brown, gold | Patient. Relentless. Grown from the ground up. |
+| **VALKYRIE** | Norse / Shield Maiden | Deep violet, silver, lightning white | She who decides who rises. Fierce. Elegant. Unstoppable. |
+| **FORM** | (retired — replaced by VALKYRIE for D) | — | — |
+| More... | Unlock through behavior | — | Seasonal, limited, earned |
+
+### Rank Progression Within Each Theme
+You don't just pick RONIN — you start as an apprentice and earn your rank:
+
+- **Recruit** → First week, fresh install
+- **Soldier** → 2 weeks consistent
+- **Veteran** → 1 month, hitting goals
+- **Elite** → 3 months, PRs, financial wins
+- **Commander** → 6 months, full system running
+- **Legendary** → 1 year, you've become the person the app was built for
+
+Each rank unlocks: visual upgrades (new UI elements, richer textures, new animations), new shit talk lines, new props, new achievement badges.
+
+### Fluid Per-Module Theming
+Same era, different battlefield depending on which module you're in:
+
+**Fitness (The Arena / The Dojo / The Battlefield)**
+- Crushing it → theme intensifies, richer colors, sharper edges
+- Beast Mode → temporary overlay: pure war, stripped back, aggressive
+- Ghost Protocol fires → brief invasion animation before it resets
+
+**Budget (The War Chest / The Treasury / The Keep)**
+- On track → strong, fortified, your era's "wealthy commander" look
+- Overspending → subtle "breach in the walls" aesthetic — not alarming, just honest
+- Snowball milestone → gold flash, fanfare, upgrade moment
+- Survival mode → stripped to essentials, tactical grey
+
+**Workday (The Command Center / The Study / The Bridge)**
+- Locked in → sharp, focused, high contrast
+- Toast → softer, muted, the morning-after-battle aesthetic
+
+**Family (The War Room)**
+- Daily briefing format — era-appropriate
+- RONIN: "Today's mission scroll"
+- VOID: "Today's tactical overlay"
+- FORGE: "The keep's morning report"
+- Always funny, always warm — the kids' sections are never grim
+
+### Transition Animations
+- Tab switch between modules: brief half-and-half crossfade, like moving between theaters of war
+- Rank up: full-screen moment, era-appropriate animation (sword flash / spell cast / drone flyover)
+- Ghost Protocol activation: screen "corrupts" then reforms into battle UI
+- Session complete: victory screen in your era (medieval fanfare / sci-fi mission complete / Japanese ink splash)
+
+### Unlockables
+- New eras earned through behavior streaks (30 days consistent = RONIN unlocks)
+- Seasonal themes (limited time: Winter Siege, Summer Campaign)
+- Joint Ops exclusive theme: unlocks after first completed Joint Ops session
+- Ghost Protocol exclusive: unlocks after first ambush survived
+- Founder theme: locked forever for beta users
+
+### Technical Notes
+- Theme ID stored in `user_profiles.theme` (string: 'iron', 'ronin', 'arcane', etc.)
+- Rank stored in `user_profiles.rank` (integer 1-6)
+- Per-module behavioral modifiers: jsonb overlay, computed nightly from pattern data
+- Transition: 300ms crossfade on tab switch with era-specific easing curve
+- User can lock theme to one era if they don't want fluid shifts (settings toggle)
+- D's FORM theme is its own standalone — not a "war era" but equally respected
+
+### The Big Idea
+Your theme isn't just a color scheme you pick once. It shifts based on your behavior in each module. The app reflects your life back at you — without saying a word.
+
+### DEFAULT THEMES
+- **Cade:** RONIN — ink black, blood red, cherry blossom accent. Discipline. Precision. No wasted movement.
+- **D:** VALKYRIE — deep violet, silver, lightning white. She who decides who rises. Fierce, elegant, unstoppable. (Medical dispatcher who led the Humboldt crash call. She's earned it.)
+- **Family Dashboard:** THE WAR ROOM — daily briefing format, mission-style. "Today's Missions" not "Today's Tasks."
+
+### MISSIONS (replacing "Tasks" / "To-Do" everywhere in the app)
+- Nothing is a "task" in Tether. Everything is a **MISSION**.
+- Complete a workout → Mission complete
+- Pay a bill on time → Mission complete
+- Andy changeover smooth → Mission complete
+- Budget on track → Holding the line
+- Weekly Review done → After Action Report filed
+
+## WAR ROOM — FULL MODULE NAMING SYSTEM
+
+| MODULE | WAR ROOM NAME | NOTES |
+|--------|--------------|-------|
+| Family Dashboard | **THE WAR ROOM** | Daily briefing, objectives, known threats, allied forces |
+| Fitness | **TRAINING** | The arena / dojo / battlefield depending on era |
+| Workday Rhythm | **THE COMMAND CENTER** | Focus blocks = missions, breaks = debrief |
+| Budget / Money | **THE ARMORY** | War chest, supply lines, resupply drops |
+| Grocery / Food | **RATIONS** | Consumption tracker, meal suggestions, survival food |
+| Vehicle | **FLEET** | Maintenance, odometer, service intervals |
+| Health / Body | **FIELD MEDIC** | HRV, sleep, recovery, body scan |
+| Kids / Family | **THE UNIT** | Andy protocol, changeover, school, meds |
+| Weekly Review | **AFTER ACTION REPORT** | Sunday 6pm, both partners, AI summary |
+| Clean Mode | **FIELD RESET** | One basket, clear floor, 10 min, no guilt |
+| Bedtime | **STAND DOWN** | Wind-down sequence, rotation tracker, off-duty |
+| Quick Hits | **DRILLS** | 3-7 min WFH micro-workouts |
+| Brain Dump | **INTEL DUMP** | Floating button, every screen, AI sorts it |
+| Thinking of You | **SIGNAL** | One tap, sends message to partner |
+| Battle Mode | **JOINT OPS / GHOST PROTOCOL** | Already named ✅ |
+| Daily Tips | **BRIEFING** | One card/day, household-adaptive |
+| Pendulum / HRV | **RECON** | Pattern detection, peak focus windows |
+| Android Modes | **DEPLOYMENT** | Drive / Gym / Work / Bedtime / Recovery / Family / DJ |
+| Smart Alarms | **REVEILLE** | Wake-up system, adaptive to sleep quality |
+| Settings | **HQ** | Profile, theme, kill switch, biometrics |
+
+### The Armory — Budget Language
+- Envelopes → **Supply lines**
+- Payday → **Resupply drop**
+- Debt snowball → **Clearing the field**
+- Transfer reminders → **Resupply orders**
+- Savings goals → **War chest**
+- Emergency fund → **Reserve**
+- Overspending → **Breach in supply line**
+- On track → **Fortified**
+- "Can I afford this?" → **Mission feasibility check**
+- Monthly check-in → **Resource audit**
+
+### VALKYRIE — FULL DESIGN SPEC (build for Saturday Joint Ops)
+
+**Colour Palette:**
+```
+Primary:      #1a0a2e  (deep void violet — the sky before lightning)
+Secondary:    #2d1b4e  (storm purple — card backgrounds)
+Accent 1:     #c0c8d8  (storm silver — text, borders)
+Accent 2:     #e8f0ff  (lightning white — highlights, active states)
+Accent 3:     #d4af37  (battle gold — PRs, wins, achievements)
+Danger:       #7b2d8b  (dark lightning — warnings, not red)
+Success:      #4a9eff  (electric blue — completions, good signals)
+Background:   #0d0618  (near black with violet undertone)
+Card:         #1e1030  (lifted surface)
+Border:       #3d2a5a  (subtle violet border)
+Muted:        #6b5a7e  (subdued text)
+```
+
+**Typography:**
+- Display / Headers: Cinzel or Trajan Pro — classical, commanding, not fantasy-costume
+- Body: Inter or DM Sans — clean, readable, modern
+- Mono (timers, stats): DM Mono — precise
+- Letter spacing: generous on headers (3-4px), tight on body
+- Weight: 300 for body, 700 for headers — nothing in between feels weak
+
+**Iconography:**
+- Wing motifs — subtle, architectural, not costume-y
+- Lightning bolt as accent element (not emoji — SVG line, sharp)
+- Shield outline for protection/security elements
+- Spear/sword tip for action buttons (very minimal, not literal)
+
+**UI Elements:**
+- Buttons: sharp corners, silver border, violet fill on press
+- Cards: deep void background, silver border, slight violet glow on active
+- Progress bars: silver fill, lightning white leading edge
+- Tab bar: near-black, active tab gets silver + thin lightning-white underline
+- Input fields: dark card background, silver border, lightning white focus ring
+
+**Animations:**
+- App open / theme unlock: lightning crack splits screen top to bottom, Valkyrie emerges from the break — 2 seconds, then settles
+- PR hit: silver shockwave radiates from center, gold flash, "VALKYRIE PR" text slams in
+- Joint Ops start: both screens show lightning connecting them — synchronized
+- Session complete: wings unfurl across screen briefly, then fade to summary
+- Tab switch: silver ripple, 200ms
+- Rank up: full lightning storm sequence, 3 seconds
+
+**Video assets needed (for Claude Code / design):**
+- Unlock sequence: lightning crack → dark sky → figure emerging (silhouette) → Valkyrie text
+- PR celebration: shockwave + gold flash loop (3 sec, loops)
+- Joint Ops activation: dual lightning bolt connecting two points
+- Session complete: wings + victory moment (3 sec)
+- These can be built as Lottie animations or React Native Animated sequences — no video files needed, pure code
+
+**Lottie animation approach (no external video files):**
+```javascript
+// PR celebration
+Animated.sequence([
+  Animated.timing(shockwave, { toValue: 1, duration: 300 }),
+  Animated.timing(goldFlash, { toValue: 1, duration: 200 }),
+  Animated.timing(prText, { toValue: 1, duration: 400 }),
+])
+
+// Lightning crack unlock
+Animated.sequence([
+  Animated.timing(crack, { toValue: 1, duration: 600 }),
+  Animated.timing(emerge, { toValue: 1, duration: 800 }),
+  Animated.timing(settle, { toValue: 1, duration: 400 }),
+])
+```
+
+**War Room copy (Valkyrie voice — commanding, warm, never aggressive):**
+- Morning briefing: "Field is yours. Here's what's on the board today."
+- Training: "The field is yours. Always has been."
+- Armory: "The treasury. She who controls the gold, controls the field."
+- Stand Down: "Rest. You've earned it. Tomorrow the field is yours again."
+- Joint Ops: "Your partner has entered the field. May the best warrior win."
+- Ghost Protocol: "Ambush incoming. You didn't hear it from us."
+- PR hit: "New record. Filed. They'll know your name."
+- Session complete: "Mission complete. The field remembers."
+- Brain state Toast: "Even Valkyries have hard days. We adjust the plan."
+
+**Saturday Joint Ops — Special Valkyrie moment:**
+When both partners are in Joint Ops and one has Valkyrie:
+- Their screen shows Valkyrie theme throughout
+- Partner's screen shows a subtle "⚡" indicator next to their name — no explanation
+- At session end, if Valkyrie wins: "The Valkyrie claims the field." 
+- If Valkyrie loses: "Even the Valkyrie falls sometimes. The field remembers your name."
+- If tied: "The field holds. Both warriors stand."
+
+**Build instructions for Claude Code:**
+1. Create `src/themes/valkyrie.ts` — full colour token file
+2. Create `src/components/ValkyrieLightning.tsx` — animated lightning crack component
+3. Create `src/components/ValkyriePRCelebration.tsx` — shockwave + gold flash + PR text
+4. Wire into FitnessScreen — if `user.theme === 'valkyrie'` use Valkyrie components
+5. Admin grant function in SettingsScreen — `user.username === 'spectre.labs'` check
+6. Unlock screen in App.tsx — checks for `theme === 'valkyrie'` on first load, shows sequence
+
+---
+
+### RONIN — FULL DESIGN SPEC
+
+**The Ronin is the masterless samurai. No army. No banner. Just discipline, precision, and the work.**
+CJ's default theme. Earned through consistency. Gets richer as rank increases.
+
+**Colour Palette:**
+```
+Primary:      #0a0a0a  (void black)
+Secondary:    #111118  (ink — card backgrounds)
+Accent 1:     #c41e3a  (blood red — PRs, alerts, Beast Mode)
+Accent 2:     #f5e6c8  (rice paper — primary text)
+Accent 3:     #d4af37  (forge gold — wins, achievements, rank)
+Accent 4:     #ffb7c5  (cherry blossom — rest states, D's messages)
+Success:      #4a7c59  (bamboo green — completions, on-track)
+Background:   #060608  (deepest black, slight blue undertone)
+Card:         #0f0f14  (lifted surface)
+Border:       #1e1e28  (barely visible)
+Muted:        #4a4a5a  (subdued text)
+```
+
+**Typography:**
+- Display: Noto Serif JP or Shippori Mincho — Japanese-influenced serif
+- Headers: same serif, tracked out, sparse
+- Body: DM Sans
+- Mono: DM Mono
+- Letter spacing: very open on display (5-6px), tight on body
+
+**Rank Visual Progression:**
+- **Recruit:** sparse, minimal — ink and void. Almost nothing.
+- **Soldier:** cherry blossom petal appears in corners. Subtle.
+- **Veteran:** red accent deepens. Stats sharper. Borders tighten.
+- **Elite:** gold appears on key achievements. Faint kanji watermark in background.
+- **Commander:** full ink wash texture on cards. Red and gold in balance.
+- **Legendary:** brushstroke background pattern. Cherry blossoms fall occasionally (idle animation).
+
+**UI Elements:**
+- Buttons: sharp corners, no radius. Blood red on press. Rice paper text.
+- Cards: ink background, barely-there border, red left-edge accent on active
+- Progress bars: blood red fill, gold leading edge when on track
+- Tab bar: void black, active = thin red underline + rice paper text
+- Rest timer: huge, stark countdown in rice paper on void
+
+**Animations:**
+- App open: ink wash spreads, Ronin kanji (浪人) forms, dissolves into UI
+- PR hit: red shockwave, gold flash, "NEW PR" slams down in stark serif
+- Session complete: ink brushstroke sweeps screen, calligraphy-style
+- Rank up: cherry blossoms fall, single kanji for new rank appears and dissolves
+- Tab switch: ink ripple, 150ms
+- Beast Mode: near-total black, single red line pulses
+- Ghost Protocol fires: sword slash cuts screen, reforms into battle UI
+
+**War Room copy (Ronin voice — sparse, direct, zero wasted words):**
+- Morning: "Today's field. Move with intent."
+- Training: "The work is the way."
+- Armory: "Resources accounted for. Hold the line."
+- Stand Down: "Rest is part of the discipline."
+- Joint Ops: "The field awaits. No mercy."
+- PR hit: "New record. Keep moving."
+- Session complete: "Done. The body remembers."
+- Brain state Toast: "Even the sharpest blade needs sharpening. Adjust."
+- LFG: "No plan. Just intention. Go."
+
+**Build instructions for Claude Code:**
+1. `src/themes/ronin.ts` — full colour token file
+2. `src/components/RoninInkWash.tsx` — animated ink wash open sequence
+3. `src/components/RoninPRCelebration.tsx` — red shockwave + gold flash + stark serif PR text
+4. `src/components/RoninRankUp.tsx` — cherry blossom + kanji rank sequence
+5. Wire into all screens for `user.theme === 'ronin'`
+6. Idle cherry blossom animation at Legendary rank
+
+---
+
+### BATTLE VS SCREEN — THEME-AWARE
+
+Activates when Joint Ops starts or Ghost Protocol reveals. Adapts to both users' themes and ranks.
+
+**Layout:**
+```
+[LEFT — User A theme]   ⚔️   [RIGHT — User B theme]
+  Username                      Username
+  Rank badge                    Rank badge
+  W/L record                    W/L record
+  Current streak                Current streak
+```
+
+**Theme clash combinations:**
+
+| USER A | USER B | VS FEEL | CENTER TEXT |
+|--------|--------|---------|-------------|
+| RONIN | VALKYRIE | Ink black / void violet. Brushstroke meets lightning. | "Discipline vs Power." |
+| RONIN | RONIN | Mirror. Single red line down center. | "The blade meets itself." |
+| VALKYRIE | VALKYRIE | Full lightning both sides. Gold divide. | "The field divides." |
+| IRON | RONIN | Tactical crosshairs / ink calligraphy. | "Firepower vs Precision." |
+| RONIN | FORM | Ink black / warm rose. Stark contrast. | "The mountain vs the bloom." |
+
+**Rank differential:**
+- 2+ ranks higher: their side gets subtle glow advantage
+- Legendary vs Recruit: Legendary gets full animation, Recruit gets "CHALLENGER" badge — underdog energy, not shame
+
+**Animation sequence:**
+1. Screen splits from center (200ms)
+2. Each side fills with theme colours (300ms)
+3. Username + rank badge slam in from each side (400ms)
+4. Record + streak fade in (300ms)
+5. Center divide pulses once
+6. Mode label appears at top: "JOINT OPS" or "GHOST PROTOCOL"
+7. 3 second hold → "BEGIN" appears
+8. Tap → screens slam together → workout begins
+
+**Ghost Protocol variant:**
+- Normal workout screen → sword slash / lightning / breach (theme-dependent) cuts across
+- VS screen assembles showing Person A's locked score
+- "They went first. Now it's your turn."
+- Queued shit talk count shown: "3 messages waiting at specific exercises."
+
+**Build instructions for Claude Code:**
+1. `src/components/VSScreen.tsx` — theme-aware component
+2. Props: `userA: { username, theme, rank, wins, losses, streak }`, `userB: same`, `mode: 'joint_ops' | 'ghost_protocol'`
+3. `getVSConfig(themeA, themeB)` function — returns colours, copy, animation style per combination
+4. Ghost Protocol variant shows locked score + shit talk queue count
+5. Integrate into JointOps.tsx and Ghost Protocol reveal flow
+
+**Not available in the theme picker. Ever.**
+
+Valkyrie cannot be selected, earned through streaks, or unlocked through normal progression. It exists in the codebase as a gift. One person in the world has it.
+
+**How it's bestowed:**
+- Only the account with username `spectre.labs` (CJ) can grant Valkyrie to another username
+- Admin function in HQ (Settings): "Grant Valkyrie" → enter username → confirm
+- Once granted: cannot be revoked except by the recipient
+- The recipient gets a full-screen moment when it unlocks — no explanation, just the theme emerging
+
+**Aesthetic:**
+- Deep violet / storm silver / lightning white
+- Hints of gold at the edges — earned, not given
+- Typography: sharp, elegant, authoritative
+- Animation: lightning crack across screen on unlock, then settles into quiet power
+- Not aggressive — commanding. She who decides who rises.
+
+**Copy (Valkyrie-specific):**
+- Armory: "The treasury. She who controls the gold, controls the field."
+- Training: "The field is yours. Always has been."
+- Command Center: "Locked in. Nothing gets through."
+- War Room: "Daily orders. You run this."
+- Stand Down: "Rest. You've earned it. Tomorrow the field is yours again."
+
+**Why it exists:**
+D led the Humboldt Broncos crash call as a medical dispatcher. ADHD, PTSD, medical dispatcher, mother, partner, still shows up to the gym on Tuesdays. She doesn't get FORM — a warm rose theme built for someone who needs encouragement. She gets Valkyrie — built for someone who already knows what she's made of.
+
+**Technical:**
+- `theme: 'valkyrie'` in `user_profiles` — only writable via admin function
+- Admin check: `user.username === 'spectre.labs'` before grant is allowed
+- Grant logged to `household_events` table with `event_type: 'valkyrie_granted'`
+- Recipient sees unlock screen on next app open
+**RONIN (Armory):** "Your war chest. Move with precision. Spend with intent."
+**VOID (Armory):** "Resource allocation. Tactical. Optimized."
+**FORGE (Armory):** "The keep's treasury. Every coin counts. The stronghold holds."
+**ARCANE (Armory):** "The vault. Knowledge of your resources is power."
+**VALKYRIE (Armory):** "The treasury. She who controls the gold, controls the field."
+- This language runs through the entire app — not just fitness
+
+### UI LANGUAGE OVERHAUL (War Room era)
+| OLD | NEW |
+|-----|-----|
+| Tasks | Missions |
+| Home | War Room |
+| History | After Action |
+| Settings | Command |
+| Complete | Mission Complete |
+| Skip | Stand Down |
+| Budget envelopes | Supply Lines |
+| Payday | Resupply |
+| Weekly Review | After Action Report |
+| Clean Mode | Field Reset |
+| Bedtime Mode | Stand Down |
+| Brain state check-in | Condition Report |
+- **IRON** — Dark/gold/brutal. Heavy lifting aesthetic. For people who show up hard.
+- **FORM** — Warm/rose/feminine. Elegant, soft, strong. (NOT pink — retired that name)
+- **PULSE** — Clean navy + electric blue. Athletic, modern, calm. (NOT called "blue")
+- **EMBER** — Deep red/amber/orange. Fire. Intensity. Controlled chaos.
+- **GHOST** — Almost monochrome. Dark grey + single accent. Minimal. Mysterious. For people who move in silence.
+- More unlockable over time based on behavior streaks, PRs, financial milestones, etc.
+
+### Fluid Per-Module Behavior
+Each module has its own theme state that shifts based on your behavior patterns:
+
+**Fitness:**
+- Consistent → stays in your base theme, gets more saturated/intense over time
+- Crushing PRs → visual effects intensify, small celebrations baked in
+- Missing sessions → theme desaturates slightly, gets quieter (not punishing — just honest)
+- Beast Mode activated → temporary visual shift to EMBER/red while in session
+- LFG → theme gets looser, more chaotic energy
+
+**Budget:**
+- On track → clean, confident, your base theme
+- Overspending → subtle shift toward warning colors (not red, not alarming — just a little rougher)
+- Snowball milestone hit → flash of gold, celebration moment
+- Survival mode → strips everything back, calm grey, no distractions
+
+**Workday:**
+- Brain state "Locked in" → sharp, high contrast
+- Brain state "Toast" → softer, lower contrast, gentler prompts
+
+### The Transition Animation
+Half-and-half when switching between module contexts — like you're walking from the gym into the office. Brief transition: split screen fades from one theme to another. Subtle. Satisfying. Tells the story of who you are in each context.
+
+### The Battle Theme (Family OS)
+Life with twins + blended family + ADHD + 4am gym + shift work = you are running a campaign. Lean into it — but keep it funny, not grim.
+
+**Family dashboard concept: THE WAR ROOM**
+- Not serious military — more like a ridiculous mission briefing that acknowledges the chaos
+- Daily briefing format: "Today's objectives", "Known threats" (Andy changeover, low fuel, payday in 3 days), "Allied forces" (D on duty, kids at school)
+- Weekly review = "After Action Report"
+- Bedtime = "Stand down"
+- Clean Mode = "Field reset"
+- It's funny because it's TRUE. Two adults with ADHD and PTSD running a household with three kids under 9 IS a military operation. Might as well have fun with it.
+
+**Important balance:** Has to be funny and warm, not aggressive. The twins are 4. This is a loving chaotic household. The battle theme is self-aware humor, not actual intensity. D's rose theme softens it. The kids' stuff is always warm.
+
+### Technical Notes
+- Theme stored per-module in user_profiles (jsonb: `{ fitness: 'iron', budget: 'ember', workday: 'ghost' }`)
+- Behavioral modifiers computed from pattern data, applied as CSS variable overrides
+- Transition animation: 300ms cross-fade between module themes on tab switch
+- Base theme always user-controlled. Behavioral modifiers are overlays, not replacements.
+- User can turn off behavioral theming in settings if they find it distracting
 
 ### The Core Insight
 Most people who need Tether will never google "ADHD app." They don't have a diagnosis. They just know life feels harder than it should. The pattern engine doesn't care what you're diagnosed with — it watches what happens and learns what helps. That's more honest than diagnosis-first software.

@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
-  StatusBar, Alert, ActivityIndicator, ScrollView, Modal,
+  StatusBar, Alert, ActivityIndicator, ScrollView, Modal, TextInput,
 } from 'react-native';
 import { useUser } from '../context/UserContext';
+import { supabase } from '../lib/supabase';
+import ValkyrieLightning from '../components/ValkyrieLightning';
 
 const C = {
   black: '#0a0a0a', dark: '#111111', card: '#181818', border: '#2a2a2a',
@@ -12,10 +14,72 @@ const C = {
 };
 
 export default function SettingsScreen() {
-  const { user, signOut, deleteAccount } = useUser();
+  const { user, signOut, deleteAccount, refreshUser } = useUser();
   const [deleteModal, setDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmText, setConfirmText] = useState('');
+
+  // Household linking
+  const [joinName, setJoinName] = useState('');
+  const [joining, setJoining] = useState(false);
+
+  // Admin — Valkyrie grant (spectre.labs only)
+  const isAdmin = user?.username === 'spectre.labs';
+  const [grantUsername, setGrantUsername] = useState('');
+  const [granting, setGranting] = useState(false);
+  const [showLightning, setShowLightning] = useState(
+    user?.theme === 'valkyrie' && !user?.valkyrie_seen
+  );
+
+  async function handleJoinHousehold() {
+    const name = joinName.trim();
+    if (!name || !user) return;
+    setJoining(true);
+    await supabase.from('user_profiles').update({ house_name: name }).eq('id', user.id);
+    await supabase.from('household_settings').upsert({ house_name: name }, { onConflict: 'house_name' });
+    await refreshUser();
+    setJoining(false);
+    setJoinName('');
+  }
+
+  async function handleLeaveHousehold() {
+    if (!user) return;
+    Alert.alert('Leave household?', 'You\'ll be unlinked from your partner. They keep their household.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Leave', style: 'destructive', onPress: async () => {
+        await supabase.from('user_profiles').update({ house_name: null }).eq('id', user.id);
+        await refreshUser();
+      }},
+    ]);
+  }
+
+  async function handleGrantValkyrie() {
+    if (!grantUsername.trim()) return;
+    setGranting(true);
+    const target = grantUsername.trim().toLowerCase();
+    const { data: profile, error: fetchErr } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('username', target)
+      .maybeSingle();
+
+    if (fetchErr || !profile) {
+      Alert.alert('User not found', `No account with username "${target}".`);
+      setGranting(false);
+      return;
+    }
+
+    await supabase.from('user_profiles').update({ theme: 'valkyrie' }).eq('id', profile.id);
+    await supabase.from('household_events').insert({
+      user_id: user?.id,
+      event_type: 'valkyrie_granted',
+      payload: { granted_to: target },
+    });
+
+    setGranting(false);
+    setGrantUsername('');
+    Alert.alert('⚡ Granted', `VALKYRIE unlocked for @${target}.`);
+  }
 
   const isForm = user?.theme === 'form';
   const accent = isForm ? '#e8748a' : C.gold;
@@ -33,6 +97,13 @@ export default function SettingsScreen() {
     } catch (e) {
       setDeleting(false);
       Alert.alert('Something went wrong', 'Your local data was cleared. Server deletion will retry next time you sign in.');
+    }
+  }
+
+  async function handleLightningComplete() {
+    setShowLightning(false);
+    if (user?.id) {
+      await supabase.from('user_profiles').update({ valkyrie_seen: true }).eq('id', user.id);
     }
   }
 
@@ -66,6 +137,44 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Household section */}
+        <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
+          <Text style={[styles.sectionTitle, { color: muted }]}>HOUSEHOLD</Text>
+
+          {user?.house_name ? (
+            <>
+              <Row label="Linked to" value={user.house_name} textColor={text} />
+              <TouchableOpacity style={[styles.row, styles.rowBtn]} onPress={handleLeaveHousehold}>
+                <Text style={[styles.rowLabel, { color: C.red }]}>Leave household</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={[styles.privacyNote, { color: muted, marginBottom: 12 }]}>
+                Enter the household name your partner set up to link your accounts.
+              </Text>
+              <TextInput
+                style={[styles.grantInput, { color: text, borderColor: border, backgroundColor: bg }]}
+                placeholder="e.g. ThePuckPack"
+                placeholderTextColor={muted}
+                value={joinName}
+                onChangeText={setJoinName}
+                autoCapitalize="words"
+              />
+              <TouchableOpacity
+                style={[styles.joinBtn, { backgroundColor: accent }, (!joinName.trim() || joining) && { opacity: 0.4 }]}
+                onPress={handleJoinHousehold}
+                disabled={!joinName.trim() || joining}
+              >
+                {joining
+                  ? <ActivityIndicator color={C.black} />
+                  : <Text style={styles.joinBtnText}>JOIN HOUSEHOLD</Text>
+                }
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+
         {/* Privacy section */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionTitle, { color: muted }]}>PRIVACY</Text>
@@ -89,11 +198,39 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Admin — Valkyrie grant (spectre.labs only) */}
+        {isAdmin && (
+          <View style={[styles.section, { backgroundColor: cardBg, borderColor: '#3d2a5a' }]}>
+            <Text style={[styles.sectionTitle, { color: '#c0c8d8' }]}>⚡ GRANT VALKYRIE</Text>
+            <TextInput
+              style={[styles.grantInput, { color: text, borderColor: border, backgroundColor: cardBg }]}
+              placeholder="username"
+              placeholderTextColor={muted}
+              value={grantUsername}
+              onChangeText={setGrantUsername}
+              autoCapitalize="none"
+            />
+            <TouchableOpacity
+              style={[styles.grantBtn, granting && { opacity: 0.5 }]}
+              onPress={handleGrantValkyrie}
+              disabled={granting}
+            >
+              {granting
+                ? <ActivityIndicator color="#0d0618" />
+                : <Text style={styles.grantBtnText}>GRANT VALKYRIE</Text>
+              }
+            </TouchableOpacity>
+          </View>
+        )}
+
         <Text style={[styles.footer, { color: muted }]}>
           Tether — Feu Follet Ethics Charter v1.0{'\n'}
           No advertising. No data selling. No real names.
         </Text>
       </ScrollView>
+
+      {/* Valkyrie unlock sequence */}
+      {showLightning && <ValkyrieLightning onComplete={handleLightningComplete} />}
 
       {/* Confirm Delete Modal */}
       <Modal visible={deleteModal} transparent animationType="fade">
@@ -172,6 +309,11 @@ const styles = StyleSheet.create({
   deleteBtnText: { color: '#fff', fontWeight: '800', fontSize: 14, letterSpacing: 1.5 },
 
   footer: { fontSize: 11, textAlign: 'center', marginTop: 8, lineHeight: 18, letterSpacing: 0.5 },
+  joinBtn: { borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
+  joinBtnText: { color: '#0a0a0a', fontWeight: '700', fontSize: 14, letterSpacing: 2 },
+  grantInput: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 10 },
+  grantBtn: { backgroundColor: '#c0c8d8', borderRadius: 10, padding: 14, alignItems: 'center' },
+  grantBtnText: { color: '#0d0618', fontSize: 14, fontWeight: '700', letterSpacing: 2 },
 
   overlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.85)',

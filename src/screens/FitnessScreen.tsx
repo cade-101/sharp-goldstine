@@ -10,6 +10,9 @@ import { supabase } from '../lib/supabase';
 import { useUser } from '../context/UserContext';
 import EffortSelector from '../components/EffortSelector';
 import { PropsModal, PRCelebration } from './HouseholdSetup';
+import RoninPRCelebration from '../components/RoninPRCelebration';
+import RoninInkWash from '../components/RoninInkWash';
+import ValkyriePRCelebration from '../components/ValkyriePRCelebration';
 import JointOps from './JointOps';
 import BeastMode from './BeastMode';
 import QuickHits from './QuickHits';
@@ -19,29 +22,18 @@ import {
   getSpotifyScopes, saveSpotifyTokens,
   searchTracks, addTrackToPlaylist, createPlaylist, getPlaybackState,
   getSpotifyMe, getHouseholdPlaylistId, saveHouseholdPlaylistId,
+  exchangeCodeForTokens, getValidAccessToken,
   SpotifyTrack,
 } from '../lib/spotifyService';
 import { SPOTIFY_CLIENT_ID as SPOT_ID } from '../lib/config';
 
 WebBrowser.maybeCompleteAuthSession();
 
-// ── THEME ──────────────────────────────────────────────────────────────────────
-const IRON = {
-  bg: '#0a0a0a', dark: '#111111', card: '#181818', border: '#2a2a2a',
-  accent: '#c9a84c', accentDim: '#7a6230', accentBg: 'rgba(201,168,76,0.1)',
-  text: '#f0ece4', muted: '#666666', green: '#3ce08a', red: '#e03c3c',
-  mode: 'dark' as const,
-};
-
-const FORM = {
-  bg: '#fdf6f0', dark: '#f5ede4', card: '#ffffff', border: '#f0d8cc',
-  accent: '#e8748a', accentDim: '#c45068', accentBg: 'rgba(232,116,138,0.1)',
-  text: '#2a1a14', muted: '#b8967e', green: '#6abf8a', red: '#e03c3c',
-  mode: 'light' as const,
-};
+import { ThemeTokens } from '../themes';
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────────
 const EDGE_URL = 'https://rzutjhmaoagjdrjefvzh.supabase.co/functions/v1/fitness-engine';
+const SPOTIFY_REDIRECT_URI = AuthSession.makeRedirectUri({ path: 'spotify' });
 
 const MODES = [
   { id: 'plan',   icon: '📋', label: 'PLAN',       sub: 'Your scheduled workout. Week view included.',        color: null },
@@ -115,9 +107,8 @@ interface PREntry {
 
 // ── COMPONENT ──────────────────────────────────────────────────────────────────
 export default function FitnessScreen() {
-  const { user } = useUser();
-  const C = user?.theme === 'form' ? FORM : IRON;
-  const isForm = user?.theme === 'form';
+  const { user, themeTokens: C } = useUser();
+  const isForm = C.mode === 'light';
   const s = makeStyles(C);
 
   // Navigation
@@ -166,36 +157,49 @@ export default function FitnessScreen() {
   const [celebVisible, setCelebVisible] = useState(false);
   const [celebPR, setCelebPR] = useState<{ exercise: string; weight: number; reps: number } | null>(null);
 
-  // Spotify
+  // Theme animations
+  const [showInkWash, setShowInkWash] = useState(false);
+
+  // Spotify — local token state so refreshes don't require UserContext reload
+  const [spotifyToken, setSpotifyToken] = useState<string | null>(user?.spotify_access_token ?? null);
   const [spotifyPlaylistId, setSpotifyPlaylistId] = useState<string | null>(null);
   const [spotifyTrackName, setSpotifyTrackName] = useState<string | null>(null);
   const [spotifySearchQuery, setSpotifySearchQuery] = useState('');
   const [spotifyResults, setSpotifyResults] = useState<SpotifyTrack[]>([]);
   const [spotifySearching, setSpotifySearching] = useState(false);
 
-  // Spotify OAuth
-  const redirectUri = AuthSession.makeRedirectUri({ path: 'spotify' });
+  // Spotify OAuth — PKCE flow for refresh token support
   const [authRequest, authResponse, promptAsync] = AuthSession.useAuthRequest(
     {
-      clientId: SPOT_ID || 'PLACEHOLDER',
+      clientId: SPOT_ID,
       scopes: getSpotifyScopes().split(' '),
-      redirectUri,
-      responseType: AuthSession.ResponseType.Token,
+      redirectUri: SPOTIFY_REDIRECT_URI,
+      responseType: AuthSession.ResponseType.Code,
+      usePKCE: true,
     },
     SPOTIFY_DISCOVERY
   );
 
   useEffect(() => {
     loadAll();
+    // Restore token from stored profile, refreshing if expired
+    if (user) {
+      getValidAccessToken(user).then(tok => {
+        if (tok) { setSpotifyToken(tok); handleSpotifyConnected(tok); }
+      });
+    }
   }, []);
 
   useEffect(() => {
-    if (authResponse?.type === 'success') {
-      const { access_token, expires_in, refresh_token } = authResponse.params;
-      if (user && access_token) {
-        saveSpotifyTokens(user.id, access_token, refresh_token ?? '', Number(expires_in ?? 3600));
-        handleSpotifyConnected(access_token);
-      }
+    if (authResponse?.type === 'success' && user && authRequest?.codeVerifier) {
+      const { code } = authResponse.params;
+      exchangeCodeForTokens(code, authRequest.codeVerifier, SPOTIFY_REDIRECT_URI)
+        .then(tokens => {
+          saveSpotifyTokens(user.id, tokens.access_token, tokens.refresh_token, tokens.expires_in);
+          setSpotifyToken(tokens.access_token);
+          handleSpotifyConnected(tokens.access_token);
+        })
+        .catch(() => Alert.alert('Spotify', 'Could not complete sign-in. Try again.'));
     }
   }, [authResponse]);
 
@@ -314,28 +318,28 @@ export default function FitnessScreen() {
   }
 
   async function handleSpotifySearch() {
-    if (!spotifySearchQuery.trim() || !user?.spotify_access_token) return;
+    if (!spotifySearchQuery.trim() || !spotifyToken) return;
     setSpotifySearching(true);
     try {
-      const results = await searchTracks(spotifySearchQuery, user.spotify_access_token);
+      const results = await searchTracks(spotifySearchQuery, spotifyToken);
       setSpotifyResults(results);
     } catch { /* ignore */ }
     setSpotifySearching(false);
   }
 
   async function addTrack(track: SpotifyTrack) {
-    if (!spotifyPlaylistId || !user?.spotify_access_token) return;
+    if (!spotifyPlaylistId || !spotifyToken) return;
     try {
-      await addTrackToPlaylist(spotifyPlaylistId, track.uri, user.spotify_access_token);
+      await addTrackToPlaylist(spotifyPlaylistId, track.uri, spotifyToken);
       Alert.alert('Added!', `"${track.name}" added to Tether Gym 💪`);
       setScreen('home');
     } catch { Alert.alert('Error', 'Could not add track'); }
   }
 
   async function syncWithPartner() {
-    if (!user?.spotify_access_token) return;
+    if (!spotifyToken || !user) return;
     try {
-      const myState = await getPlaybackState(user.spotify_access_token);
+      const myState = await getPlaybackState(spotifyToken);
       if (!myState?.item || !partnerId) return;
       // Notify via household_events — partner app polls and plays same position
       await supabase.from('household_events').insert({
@@ -385,6 +389,7 @@ export default function FitnessScreen() {
       setElapsed(0);
       clearInterval(sessionTimerRef.current!);
       sessionTimerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+      if (user?.theme === 'ronin') setShowInkWash(true);
       setScreen('workout');
     } catch {
       Alert.alert('Could not start session', 'Check your connection and try again.');
@@ -547,7 +552,7 @@ export default function FitnessScreen() {
     const weekDays = getWeekDays();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const isSpotifyConnected = !!user?.spotify_access_token;
+    const isSpotifyConnected = !!spotifyToken && (user?.spotify_token_expiry ?? 0) > Date.now() - 60000;
 
     return (
       <SafeAreaView style={s.bg}>
@@ -977,8 +982,14 @@ export default function FitnessScreen() {
           </TouchableOpacity>
         </ScrollView>
 
-        {/* PR Celebration */}
-        {celebPR && (
+        {/* PR Celebration — theme-aware */}
+        {celebPR && celebVisible && user?.theme === 'ronin' && (
+          <RoninPRCelebration onComplete={() => setCelebVisible(false)} />
+        )}
+        {celebPR && celebVisible && user?.theme === 'valkyrie' && (
+          <ValkyriePRCelebration onComplete={() => setCelebVisible(false)} />
+        )}
+        {celebPR && !['ronin', 'valkyrie'].includes(user?.theme ?? '') && (
           <PRCelebration
             visible={celebVisible}
             exercise={celebPR.exercise}
@@ -994,6 +1005,9 @@ export default function FitnessScreen() {
             }}
           />
         )}
+
+        {/* Ronin session-start ink wash */}
+        {showInkWash && <RoninInkWash onComplete={() => setShowInkWash(false)} />}
         {propsTarget && (
           <PropsModal
             visible={propsModalVisible}
@@ -1111,7 +1125,7 @@ export default function FitnessScreen() {
 }
 
 // ── STYLES ────────────────────────────────────────────────────────────────────
-function makeStyles(C: typeof IRON | typeof FORM) {
+function makeStyles(C: ThemeTokens) {
   return StyleSheet.create({
     bg:            { flex: 1, backgroundColor: C.bg },
     center:        { justifyContent: 'center', alignItems: 'center' },
