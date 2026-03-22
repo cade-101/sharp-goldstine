@@ -1,9 +1,6 @@
 import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
 import { supabase } from './supabase';
 import { SPOTIFY_CLIENT_ID } from './config';
-
-WebBrowser.maybeCompleteAuthSession();
 
 const SPOTIFY_BASE = 'https://api.spotify.com/v1';
 const SCOPES = [
@@ -20,7 +17,9 @@ export const SPOTIFY_DISCOVERY = {
 };
 
 export function makeSpotifyRedirectUri() {
-  return AuthSession.makeRedirectUri({ path: 'spotify' });
+  const uri = AuthSession.makeRedirectUri({ scheme: 'tether', path: 'spotify' });
+  console.log('[Spotify] redirectUri:', uri);
+  return uri;
 }
 
 export function getSpotifyScopes() {

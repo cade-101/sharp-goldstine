@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import * as Notifications from 'expo-notifications';
 import { supabase } from '../lib/supabase';
 import { getTheme, ThemeTokens } from '../themes';
 
@@ -24,6 +25,7 @@ type User = {
   spotify_refresh_token?: string | null;
   spotify_token_expiry?: number | null;
   valkyrie_seen?: boolean;
+  household_setup_seen?: boolean;
 };
 
 type UserContextType = {
@@ -83,6 +85,27 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     if (data) setUser(data);
     setLoading(false);
+
+    // Register push token and store in user_profiles
+    registerPushToken(userId);
+  }
+
+  async function registerPushToken(userId: string) {
+    try {
+      // Only register if permission already granted — never prompt during auth flow
+      const { status } = await Notifications.getPermissionsAsync();
+      if (status !== 'granted') return;
+
+      const tokenData = await Notifications.getExpoPushTokenAsync();
+      const token = tokenData.data;
+
+      await supabase
+        .from('user_profiles')
+        .update({ push_token: token })
+        .eq('id', userId);
+    } catch {
+      // Not a physical device or permissions denied — fine
+    }
   }
 
   async function refreshUser() {

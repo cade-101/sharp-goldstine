@@ -6,6 +6,7 @@ import {
 import { supabase } from '../lib/supabase';
 import EffortSelector from '../components/EffortSelector';
 import { PropsModal } from './HouseholdSetup';
+import { sendPushNotification } from '../lib/sendPushNotification';
 import type { EffortRating } from '../lib/fitnessTypes';
 import VSScreen from '../components/VSScreen';
 
@@ -56,6 +57,7 @@ interface Props {
   };
   partnerId: string | null;
   partnerUsername: string;
+  partnerTheme?: string;
   C: {
     bg: string; dark: string; card: string; border: string;
     accent: string; accentDim: string; accentBg: string;
@@ -79,7 +81,7 @@ function callEngine(body: object): Promise<unknown> {
 }
 
 // ── COMPONENT ──────────────────────────────────────────────────────────────────
-export default function JointOps({ user, partnerId, partnerUsername, C, onBack }: Props) {
+export default function JointOps({ user, partnerId, partnerUsername, partnerTheme = 'iron', C, onBack }: Props) {
   const [screen, setScreen] = useState<JointScreen>('invite');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -104,9 +106,14 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
   const [shitTalkLib, setShitTalkLib] = useState<string[]>(DEFAULT_SHIT_TALK);
   const [shitTalkModal, setShitTalkModal] = useState(false);
   const [incomingShitTalk, setIncomingShitTalk] = useState<string | null>(null);
+  // Pending shit talk: holds until partner reaches the exercise it was sent from
+  const [pendingShitTalks, setPendingShitTalks] = useState<{ message: string; exerciseName: string }[]>([]);
 
   // Props
   const [propsModal, setPropsModal] = useState(false);
+
+  // Session start error
+  const [startError, setStartError] = useState<string | null>(null);
 
   // Completion
   const [completedSets, setCompletedSets] = useState<{ exerciseName: string; weight: number; reps: number; isPR: boolean }[]>([]);
@@ -136,8 +143,16 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
         filter: `to_user=eq.${user.id}`,
       }, (payload: any) => {
         if (payload.new.event_type === 'shit_talk') {
-          setIncomingShitTalk(payload.new.message);
-          setTimeout(() => setIncomingShitTalk(null), 4000);
+          const msg: string = payload.new.message;
+          const exName: string | null = payload.new.exercise_name ?? null;
+          if (exName) {
+            // Hold it — show when partner reaches this exercise
+            setPendingShitTalks(prev => [...prev, { message: msg, exerciseName: exName }]);
+          } else {
+            // No exercise tag — show immediately (legacy)
+            setIncomingShitTalk(msg);
+            setTimeout(() => setIncomingShitTalk(null), 4000);
+          }
         }
       })
       .on('postgres_changes', {
@@ -165,6 +180,19 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
 
     return () => { supabase.removeChannel(channel); };
   }, [screen]);
+
+  // Fire pending shit talk when partner reaches the exercise it was tagged to
+  useEffect(() => {
+    if (!exercises.length || !pendingShitTalks.length) return;
+    const currentExName = exercises[exerciseIndex]?.name;
+    if (!currentExName) return;
+    const match = pendingShitTalks.find(p => p.exerciseName === currentExName);
+    if (match) {
+      setIncomingShitTalk(match.message);
+      setTimeout(() => setIncomingShitTalk(null), 4000);
+      setPendingShitTalks(prev => prev.filter(p => p !== match));
+    }
+  }, [exerciseIndex, exercises, pendingShitTalks]);
 
   // Real-time scoring: watch exercise_performance for partner rows
   useEffect(() => {
@@ -250,6 +278,12 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
       event_data: {},
       seen: false,
     });
+    // Push partner so they know — they may not have the app open
+    sendPushNotification(
+      partnerId,
+      '⚔️ JOINT OPS',
+      `${user.username ?? 'Your partner'} activated Joint Ops. Tap to join.`,
+    );
     setLoading(false);
     setScreen('waiting');
     startJointWorkout(); // Host starts immediately; partner joins when ready
@@ -277,9 +311,20 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
   }
 
   async function startJointWorkout() {
+    if (!partnerId) {
+      setStartError('Partner not found. Make sure you\'re in the same household.');
+      return;
+    }
+    setStartError(null);
     setLoading(true);
+
+    // 15-second timeout race
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), 15000)
+    );
+
     try {
-      const result = await callEngine({
+      const enginePayload = {
         event: 'joint_ops_start',
         userId: user.id,
         partnerId,
@@ -287,22 +332,32 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
           hardStopMinutes: 75,
           equipment: user.equipment ?? 'full_gym',
         },
-      }) as { sessionId: string; plan: { exercises: Exercise[]; label: string } };
+      };
+      console.log('joint_ops payload:', JSON.stringify(enginePayload));
+
+      const result = await Promise.race([
+        callEngine(enginePayload),
+        timeoutPromise,
+      ]) as { sessionId: string; plan: { exercises: Exercise[]; label: string } };
+
+      if (!result?.sessionId || !result?.plan?.exercises?.length) {
+        throw new Error('Bad response from engine');
+      }
 
       setSessionId(result.sessionId);
       setExercises(result.plan.exercises);
 
-      // Start timers
       setElapsed(0);
       clearInterval(sessionTimerRef.current!);
       sessionTimerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
-
-      // +10 pts for session start (on time)
       setMyScore(prev => ({ ...prev, sessions: 1, onTime: 1, total: 15 }));
-
       setScreen('vs');
-    } catch {
-      Alert.alert('Could not load session', 'Check connection and try again.');
+    } catch (err: any) {
+      const msg = err?.message === 'timeout'
+        ? 'Session timed out. Check connection and try again.'
+        : 'Session failed to start. Try again.';
+      console.log('joint_ops error:', err?.message);
+      setStartError(msg);
     }
     setLoading(false);
   }
@@ -390,13 +445,16 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
 
   async function sendShitTalk(msg: string) {
     if (!partnerId) return;
+    const currentExName = exercises[exerciseIndex]?.name ?? null;
     await supabase.from('props').insert({
       from_user: user.id,
       to_user: partnerId,
       message: msg,
       event_type: 'shit_talk',
+      exercise_name: currentExName,
       seen: false,
     });
+    sendPushNotification(partnerId, `💀 Shit talk from ${user.username ?? 'your partner'}`, msg);
     setShitTalkModal(false);
   }
 
@@ -439,14 +497,40 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
   // ── WAITING SCREEN ─────────────────────────────────────────────────────────
   if (screen === 'waiting') return (
     <SafeAreaView style={[s.bg, { flex: 1 }]}>
+      <View style={s.header}>
+        <TouchableOpacity onPress={onBack}>
+          <Text style={s.backText}>← BACK</Text>
+        </TouchableOpacity>
+      </View>
       <View style={[s.center, { flex: 1, padding: 32 }]}>
-        <ActivityIndicator size="large" color={C.accent} />
-        <Text style={[s.bigTitle, { color: C.accent, marginTop: 24, fontSize: 28 }]}>
-          Waiting for {partnerUsername}...
-        </Text>
-        <Text style={[s.sub, { color: C.muted, textAlign: 'center', marginTop: 12 }]}>
-          Invite sent. Starting your plan now — they can join mid-session.
-        </Text>
+        {startError ? (
+          <>
+            <Text style={{ fontSize: 40, marginBottom: 16 }}>⚠️</Text>
+            <Text style={[s.bigTitle, { color: C.red, fontSize: 22, textAlign: 'center', marginBottom: 12 }]}>
+              {startError}
+            </Text>
+            <TouchableOpacity
+              style={[s.primaryBtn, { backgroundColor: C.accent, marginBottom: 12 }]}
+              onPress={startJointWorkout}
+              disabled={loading}
+            >
+              {loading
+                ? <ActivityIndicator color={C.bg} />
+                : <Text style={[s.primaryBtnText, { color: C.bg }]}>RETRY</Text>
+              }
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <ActivityIndicator size="large" color={C.accent} />
+            <Text style={[s.bigTitle, { color: C.accent, marginTop: 24, fontSize: 28 }]}>
+              Waiting for {partnerUsername}...
+            </Text>
+            <Text style={[s.sub, { color: C.muted, textAlign: 'center', marginTop: 12 }]}>
+              Invite sent. Starting your plan now — they can join mid-session.
+            </Text>
+          </>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -456,7 +540,7 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
     return (
       <VSScreen
         userA={{ username: myName, theme: user.theme ?? 'iron', rank: 0, wins: 0, losses: 0, streak: 0 }}
-        userB={{ username: partnerUsername || 'PARTNER', theme: 'iron', rank: 0, wins: 0, losses: 0, streak: 0 }}
+        userB={{ username: partnerUsername || 'PARTNER', theme: partnerTheme, rank: 0, wins: 0, losses: 0, streak: 0 }}
         mode="joint_ops"
         onBegin={() => setScreen('active')}
       />
@@ -475,6 +559,12 @@ export default function JointOps({ user, partnerId, partnerUsername, C, onBack }
 
         {/* Header */}
         <View style={s.header}>
+          <TouchableOpacity onPress={() => Alert.alert('Stand Down?', 'End this session?', [
+            { text: 'Keep going', style: 'cancel' },
+            { text: 'Stand Down', style: 'destructive', onPress: onBack },
+          ])}>
+            <Text style={s.backText}>← STAND DOWN</Text>
+          </TouchableOpacity>
           <Text style={[s.bigTitle, { color: C.accent, fontSize: 20 }]}>JOINT OPS ⚔️</Text>
           <Text style={[s.sub, { color: C.muted }]}>{formatTime(elapsed)}</Text>
         </View>

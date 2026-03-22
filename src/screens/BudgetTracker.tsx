@@ -9,6 +9,7 @@ import { useUser } from '../context/UserContext';
 
 import { ThemeTokens } from '../themes';
 import { pickAndParseFinancialImage, ParsedTransaction } from '../lib/parseFinancialImage';
+import ShoppingList from './ShoppingList';
 
 function makeStyles(T: ThemeTokens) {
   return StyleSheet.create({
@@ -36,9 +37,13 @@ function makeStyles(T: ThemeTokens) {
     scanBtnText:  { color: T.text, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
     affordBtn:    { margin: 16, marginBottom: 8, backgroundColor: T.accent, borderRadius: 14, padding: 20, alignItems: 'center' as const },
     affordBtnText:{ color: T.bg, fontSize: 20, fontWeight: '700', letterSpacing: 1 },
-    actionRow:    { flexDirection: 'row' as const, gap: 10, marginHorizontal: 16, marginBottom: 32 },
+    actionRow:    { flexDirection: 'row' as const, gap: 10, marginHorizontal: 16, marginBottom: 16 },
     actionBtn:    { flex: 1, backgroundColor: T.card, borderRadius: 12, padding: 16, alignItems: 'center' as const, borderWidth: 1, borderColor: T.border },
     actionBtnText:{ color: T.text, fontSize: 14, fontWeight: '500' },
+    supplyRunBtn: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 14, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 12, padding: 16, marginHorizontal: 16, marginBottom: 32 },
+    supplyRunIcon: { fontSize: 28 },
+    supplyRunLabel: { color: T.text, fontSize: 15, fontWeight: '800' as const, letterSpacing: 2 },
+    supplyRunSub: { color: T.muted, fontSize: 12, marginTop: 2 },
     formContainer:{ padding: 24 },
     back:         { fontSize: 12, color: T.muted, letterSpacing: 2, marginBottom: 20 },
     formTitle:    { fontSize: 36, color: T.text, fontWeight: '700', letterSpacing: 2, marginBottom: 28 },
@@ -117,6 +122,7 @@ export default function BudgetTracker() {
   const [envelopes, setEnvelopes] = useState(DEFAULT_ENVELOPES);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [screen, setScreen] = useState<'home' | 'log' | 'afford' | 'history' | 'scan_review'>('home');
+  const [showSupplyRun, setShowSupplyRun] = useState(false);
 
   // Scan
   const [scanLoading, setScanLoading] = useState(false);
@@ -384,7 +390,19 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
           </TouchableOpacity>
         </View>
 
+        <TouchableOpacity style={s.supplyRunBtn} onPress={() => setShowSupplyRun(true)} activeOpacity={0.8}>
+          <Text style={s.supplyRunIcon}>📋</Text>
+          <View>
+            <Text style={s.supplyRunLabel}>SUPPLY RUN</Text>
+            <Text style={s.supplyRunSub}>Shopping lists — household, personal, the unit</Text>
+          </View>
+        </TouchableOpacity>
+
       </ScrollView>
+
+      {showSupplyRun && (
+        <ShoppingList onClose={() => setShowSupplyRun(false)} />
+      )}
     </SafeAreaView>
   );
 

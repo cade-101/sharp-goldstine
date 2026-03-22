@@ -7,6 +7,7 @@ import {
 import * as Notifications from 'expo-notifications';
 import * as TaskManager from 'expo-task-manager';
 import * as BackgroundFetch from 'expo-background-fetch';
+import { Audio } from 'expo-av';
 import { useUser } from '../context/UserContext';
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────────
@@ -45,16 +46,31 @@ async function requestNotificationPermission() {
   return status === 'granted';
 }
 
+async function playBeep() {
+  try {
+    await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+    const sound = new Audio.Sound();
+    await sound.loadAsync(require('../../assets/audio/beep-beep.wav'));
+    await sound.playAsync();
+    sound.setOnPlaybackStatusUpdate((s) => {
+      if (s.isLoaded && s.didJustFinish) sound.unloadAsync();
+    });
+  } catch {
+    // Fall back to vibration only
+  }
+}
+
 async function fireBlockEndNotification(type: 'focus' | 'break') {
   const isFocus = type === 'focus';
   Vibration.vibrate([0, 500, 200, 500]);
+  await playBeep();
   await Notifications.scheduleNotificationAsync({
     content: {
       title: isFocus ? '🎯 Focus block done' : '⚡ Break over',
       body: isFocus ? 'Take a break — you earned it.' : "Back to it. Let's go.",
       sound: true,
     },
-    trigger: null, // fire immediately
+    trigger: null,
   });
 }
 

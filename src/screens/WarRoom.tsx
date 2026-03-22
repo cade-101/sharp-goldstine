@@ -5,9 +5,18 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '../context/UserContext';
 import { supabase } from '../lib/supabase';
+import { sendPushNotification } from '../lib/sendPushNotification';
+import { logEvent } from '../lib/logEvent';
+
+const MISSIONS_KEY = 'warroom_missions';
+const MISSIONS_DATE_KEY = 'warroom_missions_date';
 import { GroceryNudgeCard } from '../components/GroceryNudgeCard';
+import Blitz from './Blitz';
+import ShoppingList from './ShoppingList';
+import * as Calendar from 'expo-calendar';
 
 const INTEL_EDGE_URL = 'https://rzutjhmaoagjdrjefvzh.supabase.co/functions/v1/intel-processor';
 
@@ -75,7 +84,7 @@ export default function WarRoom() {
   const [loadingSignals, setLoadingSignals] = useState(false);
 
   // Partner status
-  const [partner, setPartner] = useState<{ username: string; theme: string } | null>(null);
+  const [partner, setPartner] = useState<{ id: string; username: string; theme: string } | null>(null);
 
   // Missions (stored locally in memory between mounts, simple strings)
   const [missions, setMissions] = useState<string[]>(['', '', '']);
@@ -85,6 +94,17 @@ export default function WarRoom() {
   // Intel Drop
   const [intelDropping, setIntelDropping] = useState(false);
   const [intelResult, setIntelResult] = useState<{ itemsLogged: number; routedTo: string[]; store?: string } | null>(null);
+
+  // Blitz
+  const [showBlitz, setShowBlitz] = useState(false);
+  const [partnerBrainState, setPartnerBrainState] = useState<string | null>(null);
+
+  // Supply Run
+  const [showSupplyRun, setShowSupplyRun] = useState(false);
+
+  // Calendar
+  const [calEvents, setCalEvents] = useState<Array<{ id: string; title: string; startDate: string }>>([]);
+  const [calPermission, setCalPermission] = useState(false);
 
   // Grocery nudges
   const [nudges, setNudges] = useState<Array<{
@@ -97,10 +117,28 @@ export default function WarRoom() {
     return () => clearInterval(interval);
   }, []);
 
+  // Load missions from AsyncStorage, reset if it's a new day
+  useEffect(() => {
+    (async () => {
+      const today = new Date().toISOString().split('T')[0];
+      const savedDate = await AsyncStorage.getItem(MISSIONS_DATE_KEY);
+      if (savedDate !== today) {
+        // New day — wipe missions
+        await AsyncStorage.setItem(MISSIONS_DATE_KEY, today);
+        await AsyncStorage.setItem(MISSIONS_KEY, JSON.stringify(['', '', '']));
+        setMissions(['', '', '']);
+      } else {
+        const raw = await AsyncStorage.getItem(MISSIONS_KEY);
+        if (raw) setMissions(JSON.parse(raw));
+      }
+    })();
+  }, []);
+
   useFocusEffect(useCallback(() => {
     loadSignals();
     loadPartner();
     loadNudges();
+    loadCalendar();
   }, [user?.house_name, user?.id]));
 
   async function loadSignals() {
@@ -121,17 +159,28 @@ export default function WarRoom() {
   async function dismissSignal(id: string) {
     await supabase.from('props').update({ seen: true }).eq('id', id);
     setSignals(prev => prev.filter(s => s.id !== id));
+    if (user?.id) logEvent(user.id, 'envelope_open', { prop_id: id });
   }
 
   async function loadPartner() {
     if (!user?.house_name || !user?.id) return;
     const { data } = await supabase
       .from('user_profiles')
-      .select('username, theme')
+      .select('id, username, theme')
       .eq('house_name', user.house_name)
       .neq('id', user.id)
       .single();
     setPartner(data ?? null);
+    if (data?.id) {
+      const { data: snap } = await supabase
+        .from('user_context_snapshots')
+        .select('brain_state')
+        .eq('user_id', data.id)
+        .order('captured_at', { ascending: false })
+        .limit(1)
+        .single();
+      setPartnerBrainState(snap?.brain_state ?? null);
+    }
   }
 
   async function loadNudges() {
@@ -151,6 +200,41 @@ export default function WarRoom() {
     setNudges(prev => prev.filter(n => n.id !== id));
   }
 
+  async function loadCalendar() {
+    const { status } = await Calendar.requestCalendarPermissionsAsync();
+    if (status !== 'granted') return;
+    setCalPermission(true);
+    const cals = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+    const today = new Date();
+    const start = new Date(today); start.setHours(0, 0, 0, 0);
+    const end = new Date(today); end.setHours(23, 59, 59, 999);
+    const events = await Calendar.getEventsAsync(
+      cals.map(c => c.id),
+      start,
+      end
+    );
+    setCalEvents(
+      events
+        .filter(e => e.title)
+        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+        .slice(0, 4)
+        .map(e => ({
+          id: e.id,
+          title: e.title,
+          startDate: String(e.startDate),
+        }))
+    );
+  }
+
+  function formatEventTime(iso: string): string {
+    const d = new Date(iso);
+    const h = d.getHours();
+    const m = d.getMinutes();
+    const ampm = h >= 12 ? 'pm' : 'am';
+    const hour = h % 12 || 12;
+    return `${hour}:${m.toString().padStart(2, '0')}${ampm}`;
+  }
+
   async function handleIntelDrop() {
     if (!user?.id) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -161,7 +245,8 @@ export default function WarRoom() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.85,
+      quality: 0.7,
+      base64: true,
     });
     if (result.canceled || !result.assets[0]) return;
 
@@ -170,19 +255,9 @@ export default function WarRoom() {
 
     try {
       const asset = result.assets[0];
-      const ext = asset.uri.split('.').pop() ?? 'jpg';
-      const path = `${user.id}/${Date.now()}.${ext}`;
+      if (!asset.base64) throw new Error('Could not read image data');
 
-      // Upload to Supabase Storage
-      const fetchResp = await fetch(asset.uri);
-      const blob = await fetchResp.blob();
-      const { error: uploadErr } = await supabase.storage
-        .from('intel-drops')
-        .upload(path, blob, { contentType: asset.mimeType ?? 'image/jpeg' });
-
-      if (uploadErr) throw new Error(uploadErr.message);
-
-      // Call Edge Function
+      // Call Edge Function directly with base64 — no Storage upload
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       const resp = await fetch(INTEL_EDGE_URL, {
@@ -192,7 +267,8 @@ export default function WarRoom() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          imageUrl: path,
+          base64Image: asset.base64,
+          mimeType: asset.mimeType ?? 'image/jpeg',
           userId: user.id,
           householdId: user.house_name,
         }),
@@ -206,6 +282,7 @@ export default function WarRoom() {
         routedTo: data.routedTo,
         store: data.store,
       });
+      logEvent(user.id, 'intel_drop', { store: data.store, items_logged: data.itemsLogged });
     } catch (err) {
       Alert.alert('Intel Drop failed', String(err));
     } finally {
@@ -222,6 +299,14 @@ export default function WarRoom() {
       brain_state: state,
       captured_at: new Date().toISOString(),
     });
+    logEvent(user.id, 'brain_state_set', { state });
+    if (state === 'emergency' && partner?.id) {
+      sendPushNotification(
+        partner.id,
+        '🚨 BACKUP NEEDED',
+        `${user.username ?? 'Your partner'} is in EMERGENCY mode — check in.`,
+      );
+    }
     setSavingBrain(false);
   }
 
@@ -229,6 +314,7 @@ export default function WarRoom() {
     const updated = [...missions];
     updated[idx] = editText;
     setMissions(updated);
+    AsyncStorage.setItem(MISSIONS_KEY, JSON.stringify(updated));
     setEditingIdx(null);
     setEditText('');
   }
@@ -333,9 +419,23 @@ export default function WarRoom() {
         {/* ── TODAY'S MISSIONS ─────────────────────────────────────────────────── */}
         <View style={s.section}>
           <Text style={s.sectionLabel}>TODAY'S MISSIONS</Text>
+
+          {calEvents.map(ev => (
+            <View key={ev.id} style={s.missionRow}>
+              <Text style={s.calEventTime}>📅 {formatEventTime(ev.startDate)}</Text>
+              <Text style={s.calEventTitle}>{ev.title}</Text>
+            </View>
+          ))}
+
+          {!calPermission && (
+            <Text style={[s.muted, { fontSize: 11, marginBottom: 8 }]}>
+              Connect calendar in device Settings for event sync
+            </Text>
+          )}
+
           {missions.map((m, i) => (
             <View key={i} style={s.missionRow}>
-              <Text style={s.missionNum}>{i + 1}</Text>
+              <Text style={s.missionNum}>{calEvents.length + i + 1}</Text>
               {editingIdx === i ? (
                 <TextInput
                   style={s.missionInput}
@@ -402,9 +502,33 @@ export default function WarRoom() {
               <Text style={s.muted}>No partner linked — invite in Settings</Text>
             )}
           </View>
+          {(partnerBrainState === 'drifting' || partnerBrainState === 'emergency') && (
+            <TouchableOpacity
+              style={s.backupAvailable}
+              onPress={() => setShowBlitz(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={s.backupText}>🔥 BACKUP AVAILABLE — Blitz ready</Text>
+            </TouchableOpacity>
+          )}
           {user?.house_name && (
             <Text style={s.houseName}>⌂ {user.house_name}</Text>
           )}
+        </View>
+
+        {/* ── BLITZ ──────────────────────────────────────────────────────── */}
+        <View style={s.section}>
+          <TouchableOpacity
+            style={s.fieldResetBtn}
+            onPress={() => setShowBlitz(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={s.fieldResetIcon}>🔥</Text>
+            <View>
+              <Text style={s.fieldResetLabel}>BLITZ</Text>
+              <Text style={s.fieldResetSub}>One mission. One corner. One win.</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
         {/* ── QUICK ACTIONS ────────────────────────────────────────────────────── */}
@@ -430,8 +554,30 @@ export default function WarRoom() {
           </View>
         </View>
 
+        {/* ── SUPPLY RUN ───────────────────────────────────────────────────────── */}
+        <View style={s.section}>
+          <TouchableOpacity
+            style={s.fieldResetBtn}
+            onPress={() => setShowSupplyRun(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={s.fieldResetIcon}>📋</Text>
+            <View>
+              <Text style={s.fieldResetLabel}>SUPPLY RUN</Text>
+              <Text style={s.fieldResetSub}>Household · Personal · The Unit</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {showBlitz && (
+        <Blitz onClose={() => setShowBlitz(false)} />
+      )}
+      {showSupplyRun && (
+        <ShoppingList onClose={() => setShowSupplyRun(false)} />
+      )}
     </SafeAreaView>
   );
 }
@@ -653,6 +799,49 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       textAlign: 'center',
       marginTop: 10,
       letterSpacing: 1,
+    },
+    backupAvailable: {
+      marginTop: 10,
+      backgroundColor: T.card,
+      borderWidth: 1,
+      borderColor: T.accent,
+      borderRadius: 10,
+      padding: 12,
+    },
+    backupText: {
+      color: T.accent,
+      fontSize: 13,
+      fontWeight: '700',
+      letterSpacing: 1,
+    },
+    // Field Reset
+    fieldResetBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+      backgroundColor: T.card,
+      borderWidth: 1,
+      borderColor: T.border,
+      borderRadius: 12,
+      padding: 16,
+    },
+    fieldResetIcon: { fontSize: 28 },
+    fieldResetLabel: {
+      color: T.text,
+      fontSize: 15,
+      fontWeight: '800',
+      letterSpacing: 2,
+    },
+    fieldResetSub: {
+      color: T.muted,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    calEventTime: {
+      fontSize: 12, color: T.accent, fontWeight: '700', letterSpacing: 0.5, minWidth: 80,
+    },
+    calEventTitle: {
+      flex: 1, fontSize: 14, color: T.text,
     },
     muted: {
       fontSize: 13,

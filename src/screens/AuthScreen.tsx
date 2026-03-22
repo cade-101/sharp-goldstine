@@ -116,9 +116,22 @@ export default function AuthScreen() {
 
     setLoading(true);
     setError('');
-    const { error } = await supabase.auth.signInWithPassword({ email: savedEmail, password: savedPass });
-    if (error) setError(error.message);
-    setLoading(false);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: savedEmail, password: savedPass });
+      if (error) {
+        // Stale credentials — clear them so the biometric button goes away
+        if (error.message.toLowerCase().includes('invalid')) {
+          await SecureStore.deleteItemAsync(BIOMETRIC_EMAIL_KEY);
+          await SecureStore.deleteItemAsync(BIOMETRIC_PASS_KEY);
+          setBioAvailable(false);
+        }
+        setError(error.message);
+      }
+    } catch {
+      setError('Login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function offerBiometricSave(loginEmail: string, loginPassword: string) {

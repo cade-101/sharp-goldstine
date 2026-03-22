@@ -4,13 +4,9 @@ import {
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert
 } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { useUser } from '../context/UserContext';
+import { logEvent } from '../lib/logEvent';
 import type { FitnessMode } from './FitnessMode';
-
-const C = {
-  black: '#0a0a0a', dark: '#111111', card: '#181818', border: '#2a2a2a',
-  gold: '#c9a84c', goldDim: '#7a6230', red: '#e03c3c', green: '#3ce08a',
-  white: '#f0ece4', muted: '#666666',
-};
 
 const WORKOUTS: Record<number, any> = {
   1: {
@@ -74,11 +70,110 @@ function getTodayWorkout() {
   return [1, 4, 5].includes(day) ? WORKOUTS[day] : WORKOUTS[5];
 }
 
+function makeStyles(C: { black: string; dark: string; card: string; border: string; gold: string; goldDim: string; red: string; green: string; white: string; muted: string }) {
+  return StyleSheet.create({
+  bg: { flex: 1, backgroundColor: C.black },
+  homeHeader: { padding: 24, paddingTop: 20, borderBottomWidth: 1, borderBottomColor: C.border },
+  dayLabel: { fontSize: 11, color: C.gold, letterSpacing: 3, marginBottom: 4 },
+  homeTitle: { fontSize: 52, color: C.white, fontWeight: '700', letterSpacing: 2, lineHeight: 56 },
+  homeSub: { fontSize: 11, color: C.muted, marginTop: 4, letterSpacing: 1 },
+  weekStrip: { flexDirection: 'row', padding: 14, gap: 5, borderBottomWidth: 1, borderBottomColor: C.border },
+  weekDay: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 7, borderWidth: 1, borderColor: C.border, backgroundColor: C.dark },
+  weekDayGym: { borderColor: C.goldDim },
+  weekDayToday: { backgroundColor: C.gold, borderColor: C.gold },
+  wdLabel: { fontSize: 8, color: C.muted, letterSpacing: 1 },
+  wdLabelToday: { color: C.black },
+  wdType: { fontSize: 10, color: C.white, fontWeight: '600', marginTop: 2 },
+  wdTypeToday: { color: C.black },
+  todayCard: { margin: 16, marginBottom: 0, backgroundColor: C.card, borderRadius: 16, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
+  tcHeader: { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  tcLabel: { fontSize: 9, color: C.gold, letterSpacing: 3 },
+  tcTitle: { fontSize: 32, color: C.white, fontWeight: '700', letterSpacing: 2, marginTop: 2 },
+  tcBadge: { backgroundColor: 'rgba(201,168,76,0.12)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1, borderColor: C.goldDim },
+  tcBadgeText: { fontSize: 10, color: C.gold },
+  exRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#1e1e1e', gap: 10 },
+  exNum: { fontSize: 18, color: C.gold, fontWeight: '700', width: 22, textAlign: 'center' },
+  exName: { fontSize: 13, color: C.white, fontWeight: '500' },
+  exDetail: { fontSize: 10, color: C.muted, marginTop: 1 },
+  prChip: { backgroundColor: 'rgba(201,168,76,0.1)', borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2, borderWidth: 1, borderColor: C.goldDim },
+  prChipText: { fontSize: 9, color: C.gold },
+  startBtn: { margin: 16, marginBottom: 8, backgroundColor: C.gold, borderRadius: 14, padding: 20, alignItems: 'center' },
+  startBtnText: { color: C.black, fontSize: 22, fontWeight: '700', letterSpacing: 3 },
+  lfgBtn: { marginHorizontal: 16, marginBottom: 8, backgroundColor: '#0d0000', borderRadius: 14, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: '#660011' },
+  lfgBtnText: { color: '#ff2233', fontSize: 18, fontWeight: '900', letterSpacing: 3 },
+  histBtn: { marginHorizontal: 16, marginBottom: 32, borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: C.border },
+  histBtnText: { fontSize: 11, color: C.muted, letterSpacing: 2 },
+  wkHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', padding: 20, paddingTop: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  wkBack: { fontSize: 12, color: C.muted, letterSpacing: 1 },
+  wkTitle: { fontSize: 38, color: C.white, fontWeight: '700', letterSpacing: 2, textAlign: 'right' },
+  wkSub: { fontSize: 10, color: C.gold, textAlign: 'right', marginTop: 2 },
+  timerBar: { flexDirection: 'row', alignItems: 'center', padding: 12, paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.dark, gap: 10 },
+  timerDisp: { fontSize: 32, color: C.gold, fontWeight: '700', minWidth: 80, letterSpacing: 2 },
+  restBtns: { flexDirection: 'row', gap: 6, flex: 1, justifyContent: 'flex-end' },
+  rBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.card },
+  rBtnGold: { backgroundColor: C.gold, borderColor: C.gold },
+  rBtnText: { fontSize: 11, color: C.white, letterSpacing: 1 },
+  exCard: { backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, marginBottom: 10, overflow: 'hidden' },
+  exCardActive: { borderColor: C.gold },
+  exCardHead: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+  ecTitle: { fontSize: 20, color: C.white, fontWeight: '700', letterSpacing: 1 },
+  ecSub: { fontSize: 10, color: C.muted, marginTop: 2 },
+  ecBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1, borderColor: C.border },
+  ecBadgePr: { borderColor: C.goldDim, backgroundColor: 'rgba(201,168,76,0.08)' },
+  ecBadgeText: { fontSize: 10, color: C.muted },
+  ecBadgeTextPr: { color: C.gold },
+  setLog: { paddingHorizontal: 14, paddingBottom: 14, borderTopWidth: 1, borderTopColor: C.border },
+  setRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1e1e1e', gap: 7 },
+  setLbl: { fontSize: 9, color: C.muted, width: 36 },
+  setIn: { flex: 1, backgroundColor: C.dark, borderWidth: 1, borderColor: C.border, borderRadius: 8, padding: 9, textAlign: 'center', fontSize: 14, color: C.white, maxWidth: 90 },
+  setOk: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.dark },
+  setOkDone: { backgroundColor: C.green, borderColor: C.green },
+  setOkText: { fontSize: 10, color: C.muted, letterSpacing: 1 },
+  setOkTextDone: { color: C.black },
+  addSetBtn: { marginTop: 10, marginBottom: 8, borderWidth: 1, borderColor: C.border, borderRadius: 8, padding: 9, alignItems: 'center' },
+  addSetText: { fontSize: 10, color: C.muted, letterSpacing: 2 },
+  nextExBtn: { backgroundColor: C.gold, borderRadius: 10, padding: 14, alignItems: 'center' },
+  nextExText: { color: C.black, fontSize: 18, fontWeight: '700', letterSpacing: 2 },
+  finishBtn: { borderWidth: 1, borderColor: C.green, borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 8, marginBottom: 4 },
+  finishBtnText: { fontSize: 22, color: C.green, fontWeight: '700', letterSpacing: 3 },
+  restOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.96)', justifyContent: 'center', alignItems: 'center' },
+  restLabel: { fontSize: 11, color: C.muted, letterSpacing: 4, marginBottom: 8 },
+  restTime: { fontSize: 88, color: C.gold, fontWeight: '700', letterSpacing: 4, lineHeight: 96 },
+  restSkip: { marginTop: 32, paddingVertical: 14, paddingHorizontal: 40, borderRadius: 10, borderWidth: 1, borderColor: C.border },
+  restSkipText: { fontSize: 12, color: C.white, letterSpacing: 2 },
+  doneTitle: { fontSize: 80, color: C.gold, fontWeight: '700', letterSpacing: 3, lineHeight: 84 },
+  doneSub: { fontSize: 11, color: C.muted, letterSpacing: 2, marginBottom: 32, marginTop: 6 },
+  doneStats: { width: '100%', backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 20, marginBottom: 24 },
+  dsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e1e1e' },
+  dsLabel: { fontSize: 10, color: C.muted, letterSpacing: 1 },
+  dsVal: { fontSize: 24, color: C.white, fontWeight: '700' },
+  histHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  histTitle: { fontSize: 42, color: C.white, fontWeight: '700', letterSpacing: 2 },
+  histEmpty: { textAlign: 'center', paddingTop: 60, fontSize: 14, color: C.muted, letterSpacing: 2, lineHeight: 28 },
+  histCard: { backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 16, marginBottom: 10 },
+  histTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  histType: { fontSize: 26, color: C.white, fontWeight: '700', letterSpacing: 1 },
+  histDate: { fontSize: 10, color: C.muted },
+  histStats: { flexDirection: 'row', gap: 16 },
+  histStat: { fontSize: 10, color: C.muted },
+  prRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 10 },
+  prTag: { backgroundColor: 'rgba(201,168,76,0.1)', borderRadius: 4, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: C.goldDim },
+  prTagText: { fontSize: 9, color: C.gold },
+  });
+}
+
 export default function GymScreen({
   onSelectMode,
 }: {
   onSelectMode?: (mode: FitnessMode) => void;
 }) {
+  const { user, themeTokens } = useUser();
+  const C = {
+    black: themeTokens.bg, dark: themeTokens.dark, card: themeTokens.card,
+    border: themeTokens.border, gold: themeTokens.accent, goldDim: themeTokens.accentDim,
+    red: themeTokens.red, green: themeTokens.green, white: themeTokens.text, muted: themeTokens.muted,
+  };
+  const s = makeStyles(C);
   const [screen, setScreen] = useState<'home' | 'workout' | 'complete' | 'history'>('home');
   const [prs, setPrs] = useState<Record<string, { w: number; r: number }>>({});
   const [history, setHistory] = useState<any[]>([]);
@@ -123,6 +218,7 @@ export default function GymScreen({
     clearInterval(timerRef.current);
     timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
     setScreen('workout');
+    if (user?.id) logEvent(user.id, 'workout_start', { workout: adapted.name });
   }
 
   function formatTime(sec: number) { return `${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, '0')}`; }
@@ -159,6 +255,7 @@ export default function GymScreen({
     });
     await supabase.from('gym_sessions').insert({ athlete: 'cade', workout_type: session.name, duration_seconds: elapsed, sets_completed: sets, reps_completed: reps, set_log: setLog, prs_hit: newPrs, started_on_time: true, date: new Date().toISOString().split('T')[0] });
     setHistory(prev => [{ workout_type: session.name, duration_seconds: elapsed, sets_completed: sets, reps_completed: reps, prs_hit: newPrs, date: new Date().toISOString().split('T')[0] }, ...prev]);
+    if (user?.id && newPrs.length > 0) logEvent(user.id, 'pr_hit', { exercises: newPrs, workout: session.name });
     setScreen('complete');
   }
 
@@ -326,92 +423,3 @@ export default function GymScreen({
   );
 }
 
-const s = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: C.black },
-  homeHeader: { padding: 24, paddingTop: 20, borderBottomWidth: 1, borderBottomColor: C.border },
-  dayLabel: { fontSize: 11, color: C.gold, letterSpacing: 3, marginBottom: 4 },
-  homeTitle: { fontSize: 52, color: C.white, fontWeight: '700', letterSpacing: 2, lineHeight: 56 },
-  homeSub: { fontSize: 11, color: C.muted, marginTop: 4, letterSpacing: 1 },
-  weekStrip: { flexDirection: 'row', padding: 14, gap: 5, borderBottomWidth: 1, borderBottomColor: C.border },
-  weekDay: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 7, borderWidth: 1, borderColor: C.border, backgroundColor: C.dark },
-  weekDayGym: { borderColor: C.goldDim },
-  weekDayToday: { backgroundColor: C.gold, borderColor: C.gold },
-  wdLabel: { fontSize: 8, color: C.muted, letterSpacing: 1 },
-  wdLabelToday: { color: C.black },
-  wdType: { fontSize: 10, color: C.white, fontWeight: '600', marginTop: 2 },
-  wdTypeToday: { color: C.black },
-  todayCard: { margin: 16, marginBottom: 0, backgroundColor: C.card, borderRadius: 16, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
-  tcHeader: { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  tcLabel: { fontSize: 9, color: C.gold, letterSpacing: 3 },
-  tcTitle: { fontSize: 32, color: C.white, fontWeight: '700', letterSpacing: 2, marginTop: 2 },
-  tcBadge: { backgroundColor: 'rgba(201,168,76,0.12)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1, borderColor: C.goldDim },
-  tcBadgeText: { fontSize: 10, color: C.gold },
-  exRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#1e1e1e', gap: 10 },
-  exNum: { fontSize: 18, color: C.gold, fontWeight: '700', width: 22, textAlign: 'center' },
-  exName: { fontSize: 13, color: C.white, fontWeight: '500' },
-  exDetail: { fontSize: 10, color: C.muted, marginTop: 1 },
-  prChip: { backgroundColor: 'rgba(201,168,76,0.1)', borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2, borderWidth: 1, borderColor: C.goldDim },
-  prChipText: { fontSize: 9, color: C.gold },
-  startBtn: { margin: 16, marginBottom: 8, backgroundColor: C.gold, borderRadius: 14, padding: 20, alignItems: 'center' },
-  startBtnText: { color: C.black, fontSize: 22, fontWeight: '700', letterSpacing: 3 },
-  lfgBtn: { marginHorizontal: 16, marginBottom: 8, backgroundColor: '#0d0000', borderRadius: 14, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: '#660011' },
-  lfgBtnText: { color: '#ff2233', fontSize: 18, fontWeight: '900', letterSpacing: 3 },
-  histBtn: { marginHorizontal: 16, marginBottom: 32, borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: C.border },
-  histBtnText: { fontSize: 11, color: C.muted, letterSpacing: 2 },
-  wkHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', padding: 20, paddingTop: 16, borderBottomWidth: 1, borderBottomColor: C.border },
-  wkBack: { fontSize: 12, color: C.muted, letterSpacing: 1 },
-  wkTitle: { fontSize: 38, color: C.white, fontWeight: '700', letterSpacing: 2, textAlign: 'right' },
-  wkSub: { fontSize: 10, color: C.gold, textAlign: 'right', marginTop: 2 },
-  timerBar: { flexDirection: 'row', alignItems: 'center', padding: 12, paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.dark, gap: 10 },
-  timerDisp: { fontSize: 32, color: C.gold, fontWeight: '700', minWidth: 80, letterSpacing: 2 },
-  restBtns: { flexDirection: 'row', gap: 6, flex: 1, justifyContent: 'flex-end' },
-  rBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.card },
-  rBtnGold: { backgroundColor: C.gold, borderColor: C.gold },
-  rBtnText: { fontSize: 11, color: C.white, letterSpacing: 1 },
-  exCard: { backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, marginBottom: 10, overflow: 'hidden' },
-  exCardActive: { borderColor: C.gold },
-  exCardHead: { flexDirection: 'row', alignItems: 'center', padding: 14 },
-  ecTitle: { fontSize: 20, color: C.white, fontWeight: '700', letterSpacing: 1 },
-  ecSub: { fontSize: 10, color: C.muted, marginTop: 2 },
-  ecBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1, borderColor: C.border },
-  ecBadgePr: { borderColor: C.goldDim, backgroundColor: 'rgba(201,168,76,0.08)' },
-  ecBadgeText: { fontSize: 10, color: C.muted },
-  ecBadgeTextPr: { color: C.gold },
-  setLog: { paddingHorizontal: 14, paddingBottom: 14, borderTopWidth: 1, borderTopColor: C.border },
-  setRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#1e1e1e', gap: 7 },
-  setLbl: { fontSize: 9, color: C.muted, width: 36 },
-  setIn: { flex: 1, backgroundColor: C.dark, borderWidth: 1, borderColor: C.border, borderRadius: 8, padding: 9, textAlign: 'center', fontSize: 14, color: C.white, maxWidth: 90 },
-  setOk: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.dark },
-  setOkDone: { backgroundColor: C.green, borderColor: C.green },
-  setOkText: { fontSize: 10, color: C.muted, letterSpacing: 1 },
-  setOkTextDone: { color: C.black },
-  addSetBtn: { marginTop: 10, marginBottom: 8, borderWidth: 1, borderColor: C.border, borderRadius: 8, padding: 9, alignItems: 'center' },
-  addSetText: { fontSize: 10, color: C.muted, letterSpacing: 2 },
-  nextExBtn: { backgroundColor: C.gold, borderRadius: 10, padding: 14, alignItems: 'center' },
-  nextExText: { color: C.black, fontSize: 18, fontWeight: '700', letterSpacing: 2 },
-  finishBtn: { borderWidth: 1, borderColor: C.green, borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 8, marginBottom: 4 },
-  finishBtnText: { fontSize: 22, color: C.green, fontWeight: '700', letterSpacing: 3 },
-  restOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.96)', justifyContent: 'center', alignItems: 'center' },
-  restLabel: { fontSize: 11, color: C.muted, letterSpacing: 4, marginBottom: 8 },
-  restTime: { fontSize: 88, color: C.gold, fontWeight: '700', letterSpacing: 4, lineHeight: 96 },
-  restSkip: { marginTop: 32, paddingVertical: 14, paddingHorizontal: 40, borderRadius: 10, borderWidth: 1, borderColor: C.border },
-  restSkipText: { fontSize: 12, color: C.white, letterSpacing: 2 },
-  doneTitle: { fontSize: 80, color: C.gold, fontWeight: '700', letterSpacing: 3, lineHeight: 84 },
-  doneSub: { fontSize: 11, color: C.muted, letterSpacing: 2, marginBottom: 32, marginTop: 6 },
-  doneStats: { width: '100%', backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 20, marginBottom: 24 },
-  dsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e1e1e' },
-  dsLabel: { fontSize: 10, color: C.muted, letterSpacing: 1 },
-  dsVal: { fontSize: 24, color: C.white, fontWeight: '700' },
-  histHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 16, borderBottomWidth: 1, borderBottomColor: C.border },
-  histTitle: { fontSize: 42, color: C.white, fontWeight: '700', letterSpacing: 2 },
-  histEmpty: { textAlign: 'center', paddingTop: 60, fontSize: 14, color: C.muted, letterSpacing: 2, lineHeight: 28 },
-  histCard: { backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 16, marginBottom: 10 },
-  histTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  histType: { fontSize: 26, color: C.white, fontWeight: '700', letterSpacing: 1 },
-  histDate: { fontSize: 10, color: C.muted },
-  histStats: { flexDirection: 'row', gap: 16 },
-  histStat: { fontSize: 10, color: C.muted },
-  prRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 10 },
-  prTag: { backgroundColor: 'rgba(201,168,76,0.1)', borderRadius: 4, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: C.goldDim },
-  prTagText: { fontSize: 9, color: C.gold },
-});

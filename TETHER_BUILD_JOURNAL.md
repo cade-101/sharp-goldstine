@@ -1,5 +1,5 @@
 # TETHER — BUILD JOURNAL
-*Last updated: March 20, 2026 (Session 19)*
+*Last updated: March 21, 2026 (Session 24)*
 
 ---
 
@@ -793,17 +793,193 @@ Time-series and correlation analysis per user:
   - Mental model shifted: band name / unit patch, not a username
   - Bad: `ThePuckPack`, `DinoLabHQ` → Good: `CretaceousEnforcers`, `VelociraptorLineChange`, `BrickAndBoneUnited`
 
+### Session 20 — March 20, 2026
+**Household loop fix + QR invite**
+
+Root cause: `App.tsx` gated main app on `!user.house_name` — so leaving a household trapped you on HouseholdSetupScreen with no way to reach Settings and join.
+
+- ✅ DB migration: `household_setup_seen boolean DEFAULT false` added to `user_profiles`
+- ✅ `App.tsx` — condition changed to `!user.house_name && !user.household_setup_seen && !householdSkipped`
+  - Setup screen only fires on **first-ever login**, never again after seen/skipped
+  - Leaving a household goes straight back to main app
+- ✅ `HouseholdSetupScreen` — full rewrite:
+  - Two-mode toggle: **NAME YOUR CREW** (existing generate flow) / **JOIN A HOUSEHOLD** (type partner's name)
+  - Join validates against `household_settings` table — shows error if name not found
+  - "skip for now" link — marks `household_setup_seen = true`, never shows again
+  - Accepts `prefillJoin` prop for deep link auto-fill
+- ✅ `SettingsScreen` — **Share household QR** button added
+  - Shows QR code in modal encoding `tether://join?house=HOUSEHOLDNAME`
+  - Partner scans → app opens → join mode pre-filled → one tap to confirm
+- ✅ `App.tsx` — deep link handler: `tether://join?house=X` → opens setup screen in join mode with name pre-filled
+- ✅ Packages installed: `react-native-svg`, `react-native-qrcode-svg`
+- ✅ APK `build-1774069712549.apk` shipped
+
+**Household linking flow (updated)**
+1. D creates account → HouseholdSetupScreen → names the crew → locked in
+2. D → Settings → HOUSEHOLD → "Share household QR" → Cade scans
+3. Cade's app opens join mode with D's household name pre-filled → one tap
+4. OR: Cade goes Settings → type the name manually → JOIN HOUSEHOLD
+
+### Session 21 — March 21, 2026
+**Intel Drop bug fix**
+- Root cause: Storage upload (`supabase.storage.from('intel-drops').upload(...)`) failing on device with `TypeError: Network request failed` — Storage bucket policy + network conditions on mobile
+- Fix: removed Storage entirely. ImagePicker `base64: true` → base64 sent directly to edge function
+- ✅ `src/screens/WarRoom.tsx` — `handleIntelDrop` rewritten: no upload, no blob, just `asset.base64`
+- ✅ `supabase/functions/intel-processor/index.ts` — new function created and deployed
+  - Accepts `{ base64Image, mimeType, userId, householdId }`
+  - Anthropic Vision (claude-haiku) → parse store + line items + categories
+  - Maps categories → envelope IDs → inserts to `budget_expenses`
+  - Logs grocery nudge to `grocery_nudges` if householdId + store present
+  - Deployed to `rzutjhmaoagjdrjefvzh`
+
+**Field Reset module**
+- ✅ `src/screens/FieldReset.tsx` — new full-screen overlay launched from War Room
+  - Screen 1: Mission Status (LOCKED IN / HOLDING / SCATTERED / CRITICAL) — no wrong answer
+  - Screen 2: Single mission card — room, zone, time limit, timer counts UP (momentum not pressure)
+  - Debrief: 2-min rest after each COMPLETE, "AREA SECURED" flash, skip available
+  - Screen 3: Field Report after 3+ missions — areas secured, time in field, LOG TO WAR ROOM / CONTINUE / STAND DOWN
+  - Anthropic (claude-haiku) generates missions tuned to energy level — directional language only, no "clean"
+  - REASSIGN = no penalty, no comment
+  - STAND DOWN = logged as a win regardless
+  - Logs to `field_reset_sessions` table (SQL to run in dashboard)
+  - Theme-aware throughout
+- ✅ `src/screens/WarRoom.tsx` — wired in:
+  - 🏴 FIELD RESET quick action button above Quick Access
+  - Partner DRIFTING/EMERGENCY → "🏴 BACKUP AVAILABLE" nudge in Allied Forces
+  - `loadPartner()` now also fetches partner's latest `brain_state` from `user_context_snapshots`
+- ✅ Zero TypeScript errors
+- ✅ APK `build-1774110573304.apk` shipped
+
+**SQL to run in Supabase dashboard:**
+```sql
+create table if not exists field_reset_sessions (
+  id uuid default gen_random_uuid() primary key,
+  created_at timestamp with time zone default now(),
+  user_id uuid references auth.users(id),
+  mission_status text,
+  missions_complete integer default 0,
+  minutes_in_field integer default 0,
+  areas_secured text[],
+  date date default current_date
+);
+alter table field_reset_sessions disable row level security;
+```
+
+### Session 22 — March 21, 2026
+**BLITZ (renamed from Field Reset) + Spotify + background timer + calendar + Supply Run**
+
+**Step 1 — Rename Field Reset → BLITZ**
+- ✅ `src/screens/FieldReset.tsx` → `src/screens/Blitz.tsx`
+- ✅ All references in `WarRoom.tsx` updated: `showFieldReset` → `showBlitz`, `FieldReset` → `Blitz`
+- ✅ UI copy: "FIELD RESET" → "BLITZ", "FIELD REPORT" → "BLITZ REPORT", icon 🏴 → 🔥
+- ✅ "AREA SECURED" — kept, perfect as-is
+- ✅ "🔥 BACKUP AVAILABLE — Blitz ready" in Allied Forces when partner is DRIFTING/EMERGENCY
+
+**Step 2 — Spotify bar in BLITZ**
+- ✅ `Blitz.tsx` mission card screen — Spotify bar above mission card, gold border, full width
+  - Connected + playlist: "Tether Gym 💪" + ▶ PLAY → `Linking.openURL('spotify:playlist:ID')` opens Spotify directly
+  - Not connected: "Connect Spotify for battle music" → taps through to close (Settings)
+  - Loads `household_settings.joint_ops_playlist_id` via `getHouseholdPlaylistId()`
+
+**Step 3 — Background timer + audio**
+- ✅ `Blitz.tsx` — AppState listener added (same pattern as WorkdayRhythm)
+  - FG timer → BG timer handoff on app backgrounding, sync back on foreground
+  - Mission time reached in background → `expo-notifications` local notification fires
+  - `Vibration.vibrate([0, 300, 200, 300])` — two pulses on complete
+  - `expo-av` plays `assets/audio/beep-beep.mp3` — try/catch, falls back to vibration if file missing
+  - ⚠️ Need to add `beep-beep.mp3` to `assets/audio/` — any short double-beep MP3 works
+
+**Step 4 — Google Calendar integration in War Room**
+- ✅ `expo-calendar` installed + added to `app.json` plugins
+- ✅ `WarRoom.tsx` — `loadCalendar()` on focus: requests permission, fetches today's events from all device calendars
+  - Events shown with 📅 prefix + time above manual mission slots
+  - Calendar events sorted by start time, non-editable, max 4 shown
+  - No permission: shows manual slots only + "Connect calendar in device Settings" note
+  - Manual slot numbering offset by calendar event count
+
+**Step 5 — Supply Run (shopping list)**
+- ✅ `src/screens/ShoppingList.tsx` — new full-screen overlay
+  - Three tabs: 🏠 HOUSEHOLD (shared, real-time), 👤 PERSONAL (private), 👦 THE UNIT (tagged to Andy/Pax/Hendrix)
+  - Supabase real-time subscription on `shopping_list_items` filtered by `house_name`
+  - AI suggestions from `budget_expenses` grocery history (items bought 2+ times)
+  - ADD ALL / DISMISS suggestions
+  - Check off → strikethrough → CLEAR COMPLETED
+  - THE UNIT: kid selector (Andy / Pax / Hendrix) → item prefixed with name
+- ✅ `WarRoom.tsx` — 📋 SUPPLY RUN button below BLITZ
+- ✅ `BudgetTracker.tsx` — SUPPLY RUN section at bottom of home screen
+- ⚠️ SQL to run in Supabase dashboard:
+```sql
+create table if not exists shopping_list_items (
+  id uuid default gen_random_uuid() primary key,
+  created_at timestamp with time zone default now(),
+  house_name text,
+  user_id uuid references auth.users(id),
+  list_type text,
+  item text,
+  tagged_to text,
+  completed boolean default false,
+  added_by text
+);
+alter table shopping_list_items disable row level security;
+```
+- ✅ Zero TypeScript errors
+- ✅ APK `build-1774114082044.apk` shipped
+
+### Session 23 — March 21, 2026
+**Audio cues — Blitz + WorkdayRhythm**
+- ✅ `assets/audio/beep-beep.wav` — generated: 880Hz sine, two pulses (0.12s on, 0.08s gap, 0.12s on), 44100Hz mono
+- ✅ `src/screens/Blitz.tsx` — `playBeep()` updated to `new Audio.Sound()` + `loadAsync` + `playAsync` pattern
+- ✅ `src/screens/WorkdayRhythm.tsx` — `playBeep()` added, called in `fireBlockEndNotification()`
+  - Plays beep-beep.wav 1x on focus block end (52 min) and break end (17 min)
+  - Original vibration pattern `[0, 500, 200, 500]` preserved
+  - try/catch fallback to vibration-only if audio fails
+- ✅ APK `build-1774116921587.apk` shipped
+
+### Session 24 — March 21, 2026
+**Boring But Critical — push tokens, missions persistence, event logging, RLS**
+
+**Push tokens + real notifications**
+- ✅ `src/lib/sendPushNotification.ts` — fetches partner's `push_token` from `user_profiles`, hits `exp.host` push API, silent fail
+- ✅ `UserContext.tsx` — `registerPushToken()` fires after every login; requests permission, gets Expo push token, stores in `user_profiles.push_token`
+- ✅ **SignalButton** — fires push on send: "📡 Signal from [name]"
+- ✅ **PropsModal** (HouseholdSetup.tsx) — fires push on send: "🏆 Props incoming"
+- ✅ **JointOps** `sendShitTalk` — fires push: "💀 Shit talk from [name]"
+- ✅ **WarRoom** `selectBrainState` — fires push to partner when EMERGENCY selected: "🚨 BACKUP NEEDED"
+
+**Missions persistence**
+- ✅ WarRoom missions load from AsyncStorage on mount
+- ✅ Auto-reset to `['', '', '']` at midnight (compares saved date to today's date)
+- ✅ `saveMission()` persists immediately on every edit
+
+**Event logging — `src/lib/logEvent.ts` + 9 touchpoints**
+- ✅ `brain_state_set` — WarRoom `selectBrainState`
+- ✅ `workout_start` — GymScreen `startSession`
+- ✅ `pr_hit` — GymScreen `finishSession` (only fires if PRs hit)
+- ✅ `blitz_start` — Blitz `handleSelectStatus`
+- ✅ `blitz_complete` — Blitz `handleLogToWarRoom`
+- ✅ `intel_drop` — WarRoom `handleIntelDrop` (after successful parse)
+- ✅ `signal_sent` — SignalButton `sendSignal`
+- ✅ `envelope_open` — WarRoom `dismissSignal`
+- ✅ `supply_run_add` — ShoppingList `addItem`
+
+**Supabase SQL run:**
+```sql
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS push_token text;
+CREATE TABLE user_events (id uuid PK, user_id uuid FK, event_type text, metadata jsonb, created_at timestamptz);
+-- RLS: users insert/read own events; users update own push_token
+```
+
+- ✅ APK `build-1774120281641.apk` shipped (76.1 MB, 414 Gradle tasks, 8 min)
+
 ### Immediate (next build session)
-1. **Workday Rhythm background timer + audio** — CRITICAL, fix first
-2. **Spotify** — wire Client ID, test full flow
+1. **Test on both phones** — D joins, QR flow, BLITZ end-to-end, Supply Run household sync, push notifications end-to-end
+2. **Spotify Client ID** — wire and test full OAuth flow
 3. **"Thinking of You" button** — defaults + library
-4. **Test on both phones — D joins, names the crew, Cade links via Settings**
 
 ### Architecture (before public launch)
-- **user_event table** — event-first data model for long-horizon pattern detection
 - **SPECTRELABS_ETHICS_KEY** — add to codebase. Feu Follet commitment 03.
 - **GitHub repo public** — Feu Follet commitment 04.
-- **RLS on all tables** — currently disabled for dev. Must enable before launch. Feu Follet compliance.
+- **RLS on all tables** — push_token + user_events done. Remaining tables need audit before launch.
 - **Remove legacy tables** — `gym_sessions`, `gym_profiles` after Battle Mode redesign confirmed working.
 
 ### Backlog (logged, not this session)

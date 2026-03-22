@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { ActivityIndicator, View, Text } from 'react-native';
@@ -14,8 +15,37 @@ import HouseholdSetupScreen from './src/screens/HouseholdSetupScreen';
 
 const Tab = createBottomTabNavigator();
 
+function parseJoinLink(url: string): string | null {
+  try {
+    const match = url.match(/tether:\/\/join\?house=([^&]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 function MainApp() {
   const { user, loading, themeTokens } = useUser();
+  const [householdSkipped, setHouseholdSkipped] = useState(false);
+  const [deepLinkHouse, setDeepLinkHouse] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Check if app was opened via deep link
+    Linking.getInitialURL().then(url => {
+      if (url) {
+        const house = parseJoinLink(url);
+        if (house) setDeepLinkHouse(house);
+      }
+    });
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      if (url.includes('spotify')) {
+        console.log('[Spotify] callback received:', url);
+      }
+      const house = parseJoinLink(url);
+      if (house) setDeepLinkHouse(house);
+    });
+    return () => sub.remove();
+  }, []);
 
   if (loading) {
     return (
@@ -29,11 +59,48 @@ function MainApp() {
     return <AuthScreen />;
   }
 
-  if (!user.house_name) {
-    return <HouseholdSetupScreen />;
+  // Deep link join: show setup screen in join mode regardless of seen/skipped state
+  if (deepLinkHouse && !user.house_name) {
+    return <HouseholdSetupScreen onSkip={() => setDeepLinkHouse(null)} prefillJoin={deepLinkHouse} />;
   }
 
-  const fitnessLabel = user.fitnessLabel ?? themeTokens.name;
+  // Show setup only on first-ever login (before they've seen it) — not after leaving a household
+  if (!user.house_name && !user.household_setup_seen && !householdSkipped) {
+    return <HouseholdSetupScreen onSkip={() => setHouseholdSkipped(true)} />;
+  }
+
+  const theme = user.theme ?? 'iron';
+
+  const TAB_ICONS: Record<string, {
+    warroom: string; work: string; fitness: string; armory: string; settings: string;
+  }> = {
+    iron:       { warroom: '🎯', work: '💻', fitness: '⚔️',  armory: '💰', settings: '⚙️' },
+    ronin:      { warroom: '⛩️', work: '📜', fitness: '⛩️',  armory: '🪙', settings: '☯️' },
+    valkyrie:   { warroom: '⚡', work: '🗡️', fitness: '⚡',  armory: '👑', settings: '🛡️' },
+    forge:      { warroom: '🏰', work: '⚒️', fitness: '🔥',  armory: '⚙️', settings: '🔑' },
+    arcane:     { warroom: '🔮', work: '📖', fitness: '🔮',  armory: '📦', settings: '📜' },
+    dragonfire: { warroom: '🐉', work: '🖥️', fitness: '🔥',  armory: '💎', settings: '🔧' },
+    void:       { warroom: '🛸', work: '🖥️', fitness: '🌌',  armory: '💎', settings: '🔧' },
+    verdant:    { warroom: '🌿', work: '🌱', fitness: '🌿',  armory: '🌾', settings: '🍃' },
+    form:       { warroom: '🌸', work: '✨', fitness: '🌸',  armory: '💎', settings: '🌺' },
+  };
+
+  const TAB_LABELS: Record<string, {
+    warroom: string; work: string; fitness: string; armory: string; settings: string;
+  }> = {
+    iron:       { warroom: 'WAR ROOM', work: 'WORK', fitness: 'IRON',     armory: 'ARMORY', settings: 'SETTINGS' },
+    ronin:      { warroom: 'WAR ROOM', work: 'WORK', fitness: 'RONIN',    armory: 'ARMORY', settings: 'SETTINGS' },
+    valkyrie:   { warroom: 'WAR ROOM', work: 'WORK', fitness: 'VALKYRIE', armory: 'ARMORY', settings: 'SETTINGS' },
+    forge:      { warroom: 'WAR ROOM', work: 'WORK', fitness: 'FORGE',    armory: 'ARMORY', settings: 'SETTINGS' },
+    arcane:     { warroom: 'WAR ROOM', work: 'WORK', fitness: 'ARCANE',   armory: 'ARMORY', settings: 'SETTINGS' },
+    dragonfire: { warroom: 'WAR ROOM', work: 'WORK', fitness: 'EMBER',    armory: 'ARMORY', settings: 'SETTINGS' },
+    void:       { warroom: 'WAR ROOM', work: 'WORK', fitness: 'VOID',     armory: 'ARMORY', settings: 'SETTINGS' },
+    verdant:    { warroom: 'WAR ROOM', work: 'WORK', fitness: 'VERDANT',  armory: 'ARMORY', settings: 'SETTINGS' },
+    form:       { warroom: 'WAR ROOM', work: 'WORK', fitness: 'FORM',     armory: 'ARMORY', settings: 'SETTINGS' },
+  };
+
+  const icons = TAB_ICONS[theme] ?? TAB_ICONS.iron;
+  const labels = TAB_LABELS[theme] ?? TAB_LABELS.iron;
 
   return (
     <View style={{ flex: 1, backgroundColor: themeTokens.bg }}>
@@ -52,42 +119,40 @@ function MainApp() {
           name="WarRoom"
           component={WarRoom}
           options={{
-            tabBarLabel: 'WAR ROOM',
-            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>🎯</Text>,
+            tabBarLabel: labels.warroom,
+            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>{icons.warroom}</Text>,
           }}
         />
         <Tab.Screen
           name="Workday"
           component={WorkdayRhythm}
           options={{
-            tabBarLabel: 'WORK',
-            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>⏱</Text>,
+            tabBarLabel: labels.work,
+            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>{icons.work}</Text>,
           }}
         />
         <Tab.Screen
           name="Fitness"
           component={FitnessScreen}
           options={{
-            tabBarLabel: fitnessLabel,
-            tabBarIcon: ({ color }) => (
-              <Text style={{ color, fontSize: 18 }}>{themeTokens.mode === 'light' ? '🌸' : '💪'}</Text>
-            ),
+            tabBarLabel: labels.fitness,
+            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>{icons.fitness}</Text>,
           }}
         />
         <Tab.Screen
           name="Budget"
           component={BudgetTracker}
           options={{
-            tabBarLabel: 'ARMORY',
-            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>💰</Text>,
+            tabBarLabel: labels.armory,
+            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>{icons.armory}</Text>,
           }}
         />
         <Tab.Screen
           name="Settings"
           component={SettingsScreen}
           options={{
-            tabBarLabel: 'SETTINGS',
-            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>⚙️</Text>,
+            tabBarLabel: labels.settings,
+            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>{icons.settings}</Text>,
           }}
         />
       </Tab.Navigator>

@@ -33,7 +33,7 @@ import { ThemeTokens } from '../themes';
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────────
 const EDGE_URL = 'https://rzutjhmaoagjdrjefvzh.supabase.co/functions/v1/fitness-engine';
-const SPOTIFY_REDIRECT_URI = AuthSession.makeRedirectUri({ path: 'spotify' });
+const SPOTIFY_REDIRECT_URI = AuthSession.makeRedirectUri({ scheme: 'tether', path: 'spotify' });
 
 const MODES = [
   { id: 'plan',   icon: '📋', label: 'PLAN',       sub: 'Your scheduled workout. Week view included.',        color: null },
@@ -146,6 +146,8 @@ export default function FitnessScreen() {
   // Partner
   const [partnerId, setPartnerId] = useState<string | null>(null);
   const [partnerUsername, setPartnerUsername] = useState('');
+  const [partnerTheme, setPartnerTheme] = useState('iron');
+  const [jointOpsInvite, setJointOpsInvite] = useState(false);
 
   // Props
   const [unseenCount, setUnseenCount] = useState(0);
@@ -189,6 +191,24 @@ export default function FitnessScreen() {
       });
     }
   }, []);
+
+  // Listen for incoming Joint Ops invites while on this screen
+  useEffect(() => {
+    if (!user?.house_name || !user?.id) return;
+    const channel = supabase.channel(`fitness_invites_${user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'household_events',
+        filter: `to_user=eq.${user.id}`,
+      }, (payload: any) => {
+        if (payload.new.event_type === 'joint_ops_invite') {
+          setJointOpsInvite(true);
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.house_name, user?.id]);
 
   useEffect(() => {
     if (authResponse?.type === 'success' && user && authRequest?.codeVerifier) {
@@ -238,13 +258,14 @@ export default function FitnessScreen() {
     if (!user?.house_name) return;
     const { data } = await supabase
       .from('user_profiles')
-      .select('id, username')
+      .select('id, username, theme')
       .eq('house_name', user.house_name)
       .neq('id', user.id)
       .maybeSingle();
     if (data) {
       setPartnerId(data.id);
       setPartnerUsername(data.username ?? 'partner');
+      setPartnerTheme(data.theme ?? 'iron');
       await loadRecentPRs(user.id, data.id, user.username ?? 'you', data.username ?? 'partner');
     } else {
       await loadRecentPRs(user.id, null, user.username ?? 'you', '');
@@ -527,7 +548,7 @@ export default function FitnessScreen() {
   }, []);
 
   // ── SUB-SCREENS ────────────────────────────────────────────────────────────
-  if (screen === 'beast') return <BeastMode />;
+  if (screen === 'beast') return <BeastMode onBack={() => setScreen('home')} />;
   if (screen === 'quick') return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <TouchableOpacity style={s.backBtn} onPress={() => setScreen('home')}>
@@ -541,8 +562,9 @@ export default function FitnessScreen() {
       user={user!}
       partnerId={partnerId}
       partnerUsername={partnerUsername}
+      partnerTheme={partnerTheme}
       C={C}
-      onBack={() => setScreen('home')}
+      onBack={() => { setJointOpsInvite(false); setScreen('home'); }}
     />
   );
 
@@ -566,7 +588,11 @@ export default function FitnessScreen() {
                 <Text style={s.dayLabel}>
                   {new Date().toLocaleDateString('en-CA', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase()}
                 </Text>
-                <Text style={s.homeTitle}>{isForm ? 'form.' : 'IRON'}</Text>
+                <Text style={s.homeTitle}>{({
+                  iron: 'THE IRON', ronin: 'THE DOJO', valkyrie: 'THE FIELD',
+                  forge: 'THE FORGE', arcane: 'THE SANCTUM', dragonfire: 'THE PIT',
+                  void: 'THE GRID', verdant: 'THE GROVE', form: 'THE STUDIO',
+                } as Record<string, string>)[user?.theme ?? 'iron'] ?? 'THE IRON'}</Text>
                 <Text style={s.homeSub}>Anthropic-powered · adapts as you lift</Text>
               </View>
               {unseenCount > 0 && (
@@ -576,6 +602,17 @@ export default function FitnessScreen() {
               )}
             </View>
           </View>
+
+          {/* Joint Ops invite banner */}
+          {jointOpsInvite && partnerId && (
+            <TouchableOpacity
+              style={{ backgroundColor: C.accent, margin: 16, borderRadius: 12, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+              onPress={() => { setJointOpsInvite(false); setScreen('joint_ops'); }}
+            >
+              <Text style={{ color: C.bg, fontWeight: '900', fontSize: 14, letterSpacing: 2 }}>⚔️ {partnerUsername.toUpperCase()} IS CALLING</Text>
+              <Text style={{ color: C.bg, fontWeight: '700', fontSize: 12 }}>JOIN JOINT OPS →</Text>
+            </TouchableOpacity>
+          )}
 
           {/* Hard stop picker */}
           <View style={s.hardStopRow}>

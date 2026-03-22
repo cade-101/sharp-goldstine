@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { generateUsername, ANTHROPIC_API_KEY } from '../lib/config';
+import { sendPushNotification } from '../lib/sendPushNotification';
 
 const C = {
   black: '#0a0a0a', dark: '#111111', card: '#181818', border: '#2a2a2a',
@@ -246,6 +247,7 @@ export function PropsModal({
       message,
       seen: false,
     });
+    sendPushNotification(toUser, '🏆 Props incoming', message);
     onClose();
   }
 

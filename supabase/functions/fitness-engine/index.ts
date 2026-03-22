@@ -540,6 +540,125 @@ async function handleSessionEnd(
   });
 }
 
+// ── JOINT OPS START ────────────────────────────────────────────────────────────
+async function handleJointOpsStart(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  partnerId: string | null,
+  payload: Record<string, unknown>,
+) {
+  const hardStopMinutes = Number(payload.hardStopMinutes ?? 75);
+
+  // Fetch both users' profiles and recent history in parallel
+  const ids = [userId, ...(partnerId ? [partnerId] : [])];
+
+  const [{ data: profiles }, { data: history }, context] = await Promise.all([
+    supabase
+      .from("user_profiles")
+      .select("id, username, theme, goals, equipment, body_focus, notes")
+      .in("id", ids),
+    supabase
+      .from("exercise_performance")
+      .select("user_id, exercise_name, weight, reps, effort, is_pr, created_at")
+      .in("user_id", ids)
+      .order("created_at", { ascending: false })
+      .limit(60),
+    getUserContext(supabase, userId),
+  ]);
+
+  const myProfile = profiles?.find((p: any) => p.id === userId);
+  const partnerProfile = profiles?.find((p: any) => p.id === partnerId);
+
+  // Create a workout session for this user
+  const hardStopTime = new Date(Date.now() + hardStopMinutes * 60_000);
+  const { data: session, error: sessionError } = await supabase
+    .from("workout_sessions")
+    .insert({
+      user_id: userId,
+      started_at: new Date().toISOString(),
+      hard_stop_time: hardStopTime.toISOString(),
+      mode: "joint_ops",
+      planned_by_ai: true,
+      label: "JOINT OPS",
+    })
+    .select("id")
+    .single();
+
+  if (sessionError || !session) {
+    return json({ error: "Failed to create session", detail: sessionError?.message }, 500);
+  }
+
+  const day = new Date().toLocaleDateString("en-CA", { weekday: "long" });
+
+  // Equipment: use the more restrictive of the two profiles
+  const equipment = payload.equipment ?? myProfile?.equipment ?? partnerProfile?.equipment ?? "full_gym";
+
+  const myHistory = (history ?? []).filter((r: any) => r.user_id === userId).slice(0, 30);
+  const partnerHistory = (history ?? []).filter((r: any) => r.user_id === partnerId).slice(0, 30);
+
+  const prompt = `Generate a Joint Ops workout — one plan for two people training head-to-head at the same time. Return only valid JSON — no markdown, no explanation.
+
+PERSON A: ${myProfile?.username ?? "Partner A"} (theme: ${myProfile?.theme ?? "iron"})
+- Goals: ${JSON.stringify(myProfile?.goals ?? ["strength"])}
+- Body focus: ${JSON.stringify(myProfile?.body_focus ?? [])}
+- Notes: ${myProfile?.notes ?? "none"}
+- Recent history (newest first): ${JSON.stringify(myHistory, null, 2)}
+
+${partnerProfile ? `PERSON B: ${partnerProfile.username ?? "Partner B"} (theme: ${partnerProfile.theme ?? "iron"})
+- Goals: ${JSON.stringify(partnerProfile.goals ?? ["strength"])}
+- Body focus: ${JSON.stringify(partnerProfile.body_focus ?? [])}
+- Notes: ${partnerProfile.notes ?? "none"}
+- Recent history (newest first): ${JSON.stringify(partnerHistory, null, 2)}` : "PERSON B: No profile found — generate for Person A only."}
+
+SESSION CONTEXT:
+- Day: ${day}
+- Hard stop: ${hardStopMinutes} minutes
+- Equipment: ${equipment}
+
+Behavior context for Person A:
+- Avg sessions/week (28d): ${context.avgSessionsPerWeek}
+- Sessions this week: ${context.sessionsLast7d}
+- Rest days in a row: ${context.restDaysInRow}
+- Dominant effort: ${context.dominantEffort}
+- PRs last 14d: ${context.prsLast14d}
+
+RESPONSE SCHEMA:
+{
+  "label": "JOINT OPS — PUSH DAY",
+  "exercises": [
+    {
+      "id": "flat_db_bench_press",
+      "name": "Flat DB Bench Press",
+      "sets": 4,
+      "targetReps": "6-8",
+      "targetWeight": null,
+      "note": "one coaching cue",
+      "type": "compound",
+      "restSeconds": 120
+    }
+  ]
+}
+
+Rules:
+- Same exercises for both people — they compete set-for-set.
+- 4-6 exercises. Fit within ${hardStopMinutes} minutes including rest.
+- Choose movements where both people can use independent equipment (DB/cable/machine preferred over single barbell).
+- Order: compound first, then accessory, then pump.
+- restSeconds: compound 90-120, accessory 60-90, pump 45. Shorter than solo — competition energy keeps rest natural.
+- If both users have different weak points, pick movements that hit both. Overlap > specificity.
+- targetWeight: null (each person sets their own load — they're competing on effort and reps, not matched weight).
+- label: include "JOINT OPS — " prefix.`;
+
+  let plan: unknown;
+  try {
+    plan = await callAnthropic(prompt, 1024);
+  } catch (_e) {
+    plan = getFallbackPlan(new Date().getDay());
+  }
+
+  return json({ sessionId: session.id, plan });
+}
+
 // ── MAIN ROUTER ────────────────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -555,11 +674,12 @@ Deno.serve(async (req: Request) => {
     const body = (await req.json()) as {
       event: string;
       userId: string;
+      partnerId?: string | null;
       sessionId?: string;
       payload: Record<string, unknown>;
     };
 
-    const { event, userId, sessionId = "", payload } = body;
+    const { event, userId, partnerId = null, sessionId = "", payload } = body;
 
     if (!userId) return json({ error: "userId required" }, 400);
     if (!payload) return json({ error: "payload required" }, 400);
@@ -567,6 +687,8 @@ Deno.serve(async (req: Request) => {
     switch (event) {
       case "session_start":
         return handleSessionStart(supabase, userId, payload);
+      case "joint_ops_start":
+        return handleJointOpsStart(supabase, userId, partnerId, payload);
       case "set_completed":
         return handleSetCompleted(supabase, userId, sessionId, payload);
       case "exercise_skipped":
@@ -574,7 +696,7 @@ Deno.serve(async (req: Request) => {
       case "session_end":
         return handleSessionEnd(supabase, userId, sessionId, payload);
       default:
-        return json({ error: `Unknown event: ${event}` }, 400);
+        return json({ error: `Unknown event type: ${event}` }, 400);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

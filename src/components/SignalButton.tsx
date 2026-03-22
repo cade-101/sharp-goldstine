@@ -6,6 +6,8 @@ import {
 } from 'react-native';
 import { useUser } from '../context/UserContext';
 import { supabase } from '../lib/supabase';
+import { sendPushNotification } from '../lib/sendPushNotification';
+import { logEvent } from '../lib/logEvent';
 
 const DEFAULT_SIGNALS = [
   { emoji: '💙', text: 'Thinking of you' },
@@ -103,6 +105,12 @@ export default function SignalButton() {
     if (error) {
       Alert.alert('Failed to send', error.message);
     } else {
+      sendPushNotification(
+        partnerId,
+        `📡 Signal from ${user.username ?? 'your partner'}`,
+        message,
+      );
+      logEvent(user.id, 'signal_sent', { message });
       closeSheet();
     }
   }

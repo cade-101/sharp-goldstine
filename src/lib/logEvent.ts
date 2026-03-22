@@ -1,0 +1,29 @@
+import { supabase } from './supabase';
+
+export type EventType =
+  | 'brain_state_set'
+  | 'workout_start'
+  | 'pr_hit'
+  | 'blitz_start'
+  | 'blitz_complete'
+  | 'intel_drop'
+  | 'signal_sent'
+  | 'envelope_open'
+  | 'supply_run_add';
+
+export async function logEvent(
+  userId: string,
+  eventType: EventType,
+  metadata?: Record<string, unknown>,
+) {
+  try {
+    await supabase.from('user_events').insert({
+      user_id: userId,
+      event_type: eventType,
+      metadata: metadata ?? {},
+      created_at: new Date().toISOString(),
+    });
+  } catch {
+    // Non-blocking — analytics should never break UX
+  }
+}

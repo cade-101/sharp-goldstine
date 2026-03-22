@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
   StatusBar, Alert, ActivityIndicator, ScrollView, Modal, TextInput,
 } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import { useUser } from '../context/UserContext';
 import { supabase } from '../lib/supabase';
 import ValkyrieLightning from '../components/ValkyrieLightning';
@@ -22,11 +23,13 @@ export default function SettingsScreen() {
   // Household linking
   const [joinName, setJoinName] = useState('');
   const [joining, setJoining] = useState(false);
+  const [showQR, setShowQR] = useState(false);
 
   // Admin — Valkyrie grant (spectre.labs only)
   const isAdmin = user?.username === 'spectre.labs';
   const [grantUsername, setGrantUsername] = useState('');
   const [granting, setGranting] = useState(false);
+  const [changingTheme, setChangingTheme] = useState(false);
   const [showLightning, setShowLightning] = useState(
     user?.theme === 'valkyrie' && !user?.valkyrie_seen
   );
@@ -51,6 +54,14 @@ export default function SettingsScreen() {
         await refreshUser();
       }},
     ]);
+  }
+
+  async function handleChangeTheme(newTheme: string) {
+    if (!user?.id || changingTheme) return;
+    setChangingTheme(true);
+    await supabase.from('user_profiles').update({ theme: newTheme }).eq('id', user.id);
+    await refreshUser();
+    setChangingTheme(false);
   }
 
   async function handleGrantValkyrie() {
@@ -137,6 +148,41 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Theme section */}
+        <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
+          <Text style={[styles.sectionTitle, { color: muted }]}>THEME</Text>
+          {[
+            { id: 'iron',     label: 'IRON',     sub: 'Dark · Gold',         dot: '#c9a84c' },
+            { id: 'ronin',    label: 'RONIN',    sub: 'Ink Black · Red',     dot: '#c41e3a' },
+            { id: 'valkyrie', label: 'VALKYRIE', sub: 'Deep Violet · Silver', dot: '#c0c8d8', locked: user?.theme !== 'valkyrie' && !isAdmin },
+          ].map(t => (
+            <TouchableOpacity
+              key={t.id}
+              style={[
+                styles.themeRow,
+                { borderColor: user?.theme === t.id ? t.dot : border },
+                (t.locked || changingTheme) && { opacity: 0.4 },
+              ]}
+              onPress={() => {
+                if (t.locked) {
+                  Alert.alert('Locked', 'VALKYRIE is granted by spectre.labs.');
+                  return;
+                }
+                handleChangeTheme(t.id);
+              }}
+              disabled={changingTheme}
+            >
+              <View style={[styles.themeDot, { backgroundColor: t.dot }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.themeLabel, { color: user?.theme === t.id ? t.dot : text }]}>{t.label}</Text>
+                <Text style={[styles.themeSub, { color: muted }]}>{t.sub}</Text>
+              </View>
+              {user?.theme === t.id && <Text style={{ color: t.dot, fontSize: 16 }}>✓</Text>}
+              {t.locked && <Text style={{ color: muted, fontSize: 11, letterSpacing: 1 }}>LOCKED</Text>}
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {/* Household section */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionTitle, { color: muted }]}>HOUSEHOLD</Text>
@@ -144,6 +190,9 @@ export default function SettingsScreen() {
           {user?.house_name ? (
             <>
               <Row label="Linked to" value={user.house_name} textColor={text} />
+              <TouchableOpacity style={[styles.row, styles.rowBtn]} onPress={() => setShowQR(true)}>
+                <Text style={[styles.rowLabel, { color: accent }]}>Share household QR</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={[styles.row, styles.rowBtn]} onPress={handleLeaveHousehold}>
                 <Text style={[styles.rowLabel, { color: C.red }]}>Leave household</Text>
               </TouchableOpacity>
@@ -232,6 +281,33 @@ export default function SettingsScreen() {
       {/* Valkyrie unlock sequence */}
       {showLightning && <ValkyrieLightning onComplete={handleLightningComplete} />}
 
+      {/* Household QR modal */}
+      <Modal visible={showQR} transparent animationType="fade">
+        <View style={styles.overlay}>
+          <View style={[styles.modal, { backgroundColor: cardBg, borderColor: border }]}>
+            <Text style={[styles.modalTitle, { color: text }]}>SCAN TO JOIN</Text>
+            <Text style={[styles.modalBody, { color: muted }]}>
+              Have your partner scan this to join {user?.house_name}.
+            </Text>
+            <View style={styles.qrWrap}>
+              <QRCode
+                value={`tether://join?house=${encodeURIComponent(user?.house_name ?? '')}`}
+                size={200}
+                color={text}
+                backgroundColor={cardBg}
+              />
+            </View>
+            <Text style={[styles.qrName, { color: accent }]}>{user?.house_name}</Text>
+            <TouchableOpacity
+              style={[styles.modalCancel, { borderColor: border, marginTop: 16 }]}
+              onPress={() => setShowQR(false)}
+            >
+              <Text style={[styles.modalCancelText, { color: text }]}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Confirm Delete Modal */}
       <Modal visible={deleteModal} transparent animationType="fade">
         <View style={styles.overlay}>
@@ -311,6 +387,14 @@ const styles = StyleSheet.create({
   footer: { fontSize: 11, textAlign: 'center', marginTop: 8, lineHeight: 18, letterSpacing: 0.5 },
   joinBtn: { borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
   joinBtnText: { color: '#0a0a0a', fontWeight: '700', fontSize: 14, letterSpacing: 2 },
+  themeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderWidth: 1.5, borderRadius: 10, padding: 14, marginBottom: 8,
+  },
+  themeDot: { width: 12, height: 12, borderRadius: 6 },
+  themeLabel: { fontSize: 13, fontWeight: '700', letterSpacing: 1.5, marginBottom: 2 },
+  themeSub: { fontSize: 11, letterSpacing: 0.5 },
+
   grantInput: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 10 },
   grantBtn: { backgroundColor: '#c0c8d8', borderRadius: 10, padding: 14, alignItems: 'center' },
   grantBtnText: { color: '#0d0618', fontSize: 14, fontWeight: '700', letterSpacing: 2 },
@@ -340,4 +424,6 @@ const styles = StyleSheet.create({
 
   deletingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, justifyContent: 'center' },
   deletingText: { fontSize: 14 },
+  qrWrap: { alignItems: 'center', marginVertical: 20 },
+  qrName: { textAlign: 'center', fontSize: 16, fontWeight: '700', letterSpacing: 2 },
 });

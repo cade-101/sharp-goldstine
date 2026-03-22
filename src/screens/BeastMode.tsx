@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  SafeAreaView, StatusBar, Vibration, Animated
+  SafeAreaView, StatusBar, Vibration, Animated, Alert
 } from 'react-native';
 import * as Speech from 'expo-speech';
 import { supabase } from '../lib/supabase';
@@ -91,7 +91,7 @@ function speak(text: string) {
   });
 }
 
-export default function BeastMode() {
+export default function BeastMode({ onBack }: { onBack?: () => void }) {
   const [phase, setPhase] = useState<'intro' | 'active' | 'rest' | 'done'>('intro');
   const [currentIdx, setCurrentIdx] = useState(0);
   const [restSeconds, setRestSeconds] = useState(0);
@@ -228,6 +228,11 @@ export default function BeastMode() {
   if (phase === 'intro') return (
     <SafeAreaView style={s.bg}>
       <StatusBar barStyle="light-content" />
+      {onBack && (
+        <TouchableOpacity style={{ padding: 16, paddingBottom: 0 }} onPress={onBack}>
+          <Text style={{ color: C.muted, fontSize: 12, letterSpacing: 1 }}>← BACK</Text>
+        </TouchableOpacity>
+      )}
       <View style={s.introContainer}>
         <Text style={s.introLabel}>YOU SURE ABOUT THIS?</Text>
         <Text style={s.introTitle}>BEAST{'\n'}MODE</Text>
@@ -254,6 +259,17 @@ export default function BeastMode() {
   if (phase === 'active') return (
     <SafeAreaView style={s.bg}>
       <StatusBar barStyle="light-content" />
+      {onBack && (
+        <TouchableOpacity
+          style={{ padding: 16, paddingBottom: 0 }}
+          onPress={() => Alert.alert('Stand Down?', 'End this session?', [
+            { text: 'Keep going', style: 'cancel' },
+            { text: 'Stand Down', style: 'destructive', onPress: onBack },
+          ])}
+        >
+          <Text style={{ color: C.muted, fontSize: 12, letterSpacing: 1 }}>← STAND DOWN</Text>
+        </TouchableOpacity>
+      )}
       <View style={s.activeContainer}>
 
         <View style={s.progressRow}>
