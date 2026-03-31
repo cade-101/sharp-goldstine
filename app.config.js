@@ -42,6 +42,7 @@ export default {
           "color": "#c9a84c"
         }
       ],
+      ["expo-build-properties", { "android": { "minSdkVersion": 26 } }],
       "@react-native-community/datetimepicker",
       [
         "react-native-health-connect",
