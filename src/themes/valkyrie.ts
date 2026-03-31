@@ -23,3 +23,5 @@ export const VALKYRIE = {
   success:     '#4a9eff',
   danger:      '#7b2d8b',
 };
+
+export default VALKYRIE;

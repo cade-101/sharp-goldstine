@@ -6,7 +6,9 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import { useUser } from '../context/UserContext';
 import { supabase } from '../lib/supabase';
+import { getTheme, SELECTABLE_THEMES, THEME_REQUIREMENTS } from '../themes';
 import ValkyrieLightning from '../components/ValkyrieLightning';
+import ShadowThemeUnlock from '../components/ShadowThemeUnlock';
 
 const C = {
   black: '#0a0a0a', dark: '#111111', card: '#181818', border: '#2a2a2a',
@@ -15,10 +17,14 @@ const C = {
 };
 
 export default function SettingsScreen() {
-  const { user, signOut, deleteAccount, refreshUser } = useUser();
+  const { user, signOut, deleteAccount, refreshUser, isDefaultTheme } = useUser();
   const [deleteModal, setDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmText, setConfirmText] = useState('');
+
+  // Era unlock state
+  const [showEraUnlock, setShowEraUnlock] = useState(false);
+  const [unlockedTheme, setUnlockedTheme] = useState<any>(null);
 
   // Household linking
   const [joinName, setJoinName] = useState('');
@@ -58,9 +64,18 @@ export default function SettingsScreen() {
 
   async function handleChangeTheme(newTheme: string) {
     if (!user?.id || changingTheme) return;
+    if (newTheme === 'valkyrie' && user.theme !== 'valkyrie' && !user.valkyrie_seen && !isAdmin) {
+      Alert.alert('Locked', 'VALKYRIE must be granted by command.');
+      return;
+    }
+    const wasDefault = isDefaultTheme;
     setChangingTheme(true);
     await supabase.from('user_profiles').update({ theme: newTheme }).eq('id', user.id);
     await refreshUser();
+    if (wasDefault && newTheme.toUpperCase() !== 'SHADOW') {
+      setUnlockedTheme(getTheme(newTheme));
+      setShowEraUnlock(true);
+    }
     setChangingTheme(false);
   }
 
@@ -80,7 +95,7 @@ export default function SettingsScreen() {
       return;
     }
 
-    await supabase.from('user_profiles').update({ theme: 'valkyrie' }).eq('id', profile.id);
+    await supabase.from('user_profiles').update({ theme: 'valkyrie', valkyrie_seen: false }).eq('id', profile.id);
     await supabase.from('household_events').insert({
       user_id: user?.id,
       event_type: 'valkyrie_granted',
@@ -104,7 +119,6 @@ export default function SettingsScreen() {
     setDeleting(true);
     try {
       await deleteAccount();
-      // deleteAccount signs out — UserProvider will clear user and navigate to AuthScreen
     } catch (e) {
       setDeleting(false);
       Alert.alert('Something went wrong', 'Your local data was cleared. Server deletion will retry next time you sign in.');
@@ -123,20 +137,15 @@ export default function SettingsScreen() {
       <StatusBar barStyle={isForm ? 'dark-content' : 'light-content'} />
       <ScrollView contentContainerStyle={styles.scroll}>
 
-        {/* Header */}
         <Text style={[styles.heading, { color: text }]}>SETTINGS</Text>
-        <Text style={[styles.sub, { color: muted }]}>
-          @{user?.username ?? '—'}
-        </Text>
+        <Text style={[styles.sub, { color: muted }]}>@{user?.username ?? '—'}</Text>
 
-        {/* Account section */}
+        {/* Account */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionTitle, { color: muted }]}>ACCOUNT</Text>
-
           <Row label="Username" value={`@${user?.username ?? '—'}`} textColor={text} />
           <Row label="Theme" value={user?.theme?.toUpperCase() ?? '—'} textColor={text} />
           <Row label="House" value={user?.house_name ?? 'Not linked'} textColor={text} />
-
           <TouchableOpacity
             style={[styles.row, styles.rowBtn]}
             onPress={() => Alert.alert('Sign out', 'Sign out of Tether?', [
@@ -148,42 +157,55 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Theme section */}
+        {/* Theme */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionTitle, { color: muted }]}>THEME</Text>
-          {[
-            { id: 'iron',     label: 'IRON',     sub: 'Dark · Gold',         dot: '#c9a84c' },
-            { id: 'ronin',    label: 'RONIN',    sub: 'Ink Black · Red',     dot: '#c41e3a' },
-            { id: 'valkyrie', label: 'VALKYRIE', sub: 'Deep Violet · Silver', dot: '#c0c8d8', locked: user?.theme !== 'valkyrie' && !isAdmin },
-          ].map(t => (
-            <TouchableOpacity
-              key={t.id}
-              style={[
-                styles.themeRow,
-                { borderColor: user?.theme === t.id ? t.dot : border },
-                (t.locked || changingTheme) && { opacity: 0.4 },
-              ]}
-              onPress={() => {
-                if (t.locked) {
-                  Alert.alert('Locked', 'VALKYRIE is granted by spectre.labs.');
-                  return;
-                }
-                handleChangeTheme(t.id);
-              }}
-              disabled={changingTheme}
-            >
-              <View style={[styles.themeDot, { backgroundColor: t.dot }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.themeLabel, { color: user?.theme === t.id ? t.dot : text }]}>{t.label}</Text>
-                <Text style={[styles.themeSub, { color: muted }]}>{t.sub}</Text>
-              </View>
-              {user?.theme === t.id && <Text style={{ color: t.dot, fontSize: 16 }}>✓</Text>}
-              {t.locked && <Text style={{ color: muted, fontSize: 11, letterSpacing: 1 }}>LOCKED</Text>}
-            </TouchableOpacity>
-          ))}
+          {(['SHADOW', ...SELECTABLE_THEMES, 'VALKYRIE'] as const).map(themeKey => {
+            const t = getTheme(themeKey);
+            const themeId = themeKey.toLowerCase();
+            const isValkyrie = themeId === 'valkyrie';
+            const isUnlocked = themeId === 'shadow' || user?.unlocked_themes?.includes(themeId) || isAdmin;
+            const themeSubs: Record<string, string> = {
+              shadow: 'Onyx · Amber', iron: 'Dark · Gold', ronin: 'Ink Black · Red',
+              valkyrie: 'Deep Violet · Silver', forge: 'Stone · Fire', arcane: 'Violet · Spellglow',
+              dragonfire: 'Charcoal · Ember', void: 'Near-black · Teal',
+              verdant: 'Forest · Earth', form: 'Rose · Warm',
+            };
+            return (
+              <TouchableOpacity
+                key={themeId}
+                style={[
+                  styles.themeRow,
+                  { borderColor: user?.theme === themeId ? t.accent : isUnlocked ? border : 'transparent' },
+                  (!isUnlocked || changingTheme) && { opacity: 0.4 },
+                ]}
+                onPress={() => {
+                  if (!isUnlocked) {
+                    const req = isValkyrie ? 'Granted by Command' : THEME_REQUIREMENTS[themeKey];
+                    Alert.alert('Theme Locked', `Requirement: ${req}`);
+                    return;
+                  }
+                  handleChangeTheme(themeId);
+                }}
+                disabled={changingTheme}
+              >
+                <View style={[styles.themeDot, { backgroundColor: t.accent }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.themeLabel, { color: user?.theme === themeId ? t.accent : isUnlocked ? text : muted }]}>
+                    {t.name}
+                  </Text>
+                  <Text style={[styles.themeSub, { color: muted }]}>
+                    {isUnlocked ? (themeSubs[themeId] || 'War Era') : 'LOCKED'}
+                  </Text>
+                </View>
+                {user?.theme === themeId && <Text style={{ color: t.accent, fontSize: 16 }}>✓</Text>}
+                {!isUnlocked && <Text style={{ color: muted, fontSize: 11, letterSpacing: 1 }}>LOCKED</Text>}
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
-        {/* Units section */}
+        {/* Units */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionTitle, { color: muted }]}>UNITS</Text>
           <View style={[styles.row, { alignItems: 'center' }]}>
@@ -193,8 +215,7 @@ export default function SettingsScreen() {
                 <TouchableOpacity
                   key={unit}
                   style={{
-                    paddingHorizontal: 16, paddingVertical: 6, borderRadius: 8,
-                    borderWidth: 1,
+                    paddingHorizontal: 16, paddingVertical: 6, borderRadius: 8, borderWidth: 1,
                     borderColor: (user?.weight_unit ?? 'lbs') === unit ? accent : border,
                     backgroundColor: (user?.weight_unit ?? 'lbs') === unit ? accent : 'transparent',
                   }}
@@ -203,17 +224,16 @@ export default function SettingsScreen() {
                     await refreshUser();
                   }}
                 >
-                  <Text style={{
-                    color: (user?.weight_unit ?? 'lbs') === unit ? C.black : muted,
-                    fontWeight: '700', fontSize: 13, letterSpacing: 1,
-                  }}>{unit.toUpperCase()}</Text>
+                  <Text style={{ color: (user?.weight_unit ?? 'lbs') === unit ? C.black : muted, fontWeight: '700', fontSize: 13, letterSpacing: 1 }}>
+                    {unit.toUpperCase()}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
         </View>
 
-        {/* Hydration section */}
+        {/* Hydration */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionTitle, { color: muted }]}>HYDRATION</Text>
           <View style={[styles.row, { alignItems: 'center', marginBottom: 12 }]}>
@@ -253,10 +273,9 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Household section */}
+        {/* Household */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionTitle, { color: muted }]}>HOUSEHOLD</Text>
-
           {user?.house_name ? (
             <>
               <Row label="Linked to" value={user.house_name} textColor={text} />
@@ -285,16 +304,13 @@ export default function SettingsScreen() {
                 onPress={handleJoinHousehold}
                 disabled={!joinName.trim() || joining}
               >
-                {joining
-                  ? <ActivityIndicator color={C.black} />
-                  : <Text style={styles.joinBtnText}>JOIN HOUSEHOLD</Text>
-                }
+                {joining ? <ActivityIndicator color={C.black} /> : <Text style={styles.joinBtnText}>JOIN HOUSEHOLD</Text>}
               </TouchableOpacity>
             </>
           )}
         </View>
 
-        {/* Privacy section */}
+        {/* Privacy */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionTitle, { color: muted }]}>PRIVACY</Text>
           <Text style={[styles.privacyNote, { color: muted }]}>
@@ -302,22 +318,18 @@ export default function SettingsScreen() {
           </Text>
         </View>
 
-        {/* Feu Follet section — Kill Switch */}
+        {/* Kill Switch */}
         <View style={[styles.section, styles.dangerSection, { backgroundColor: cardBg, borderColor: C.redDim }]}>
           <Text style={[styles.sectionTitle, { color: C.red }]}>DELETE ALL MY DATA</Text>
           <Text style={[styles.dangerNote, { color: muted }]}>
             Permanently deletes everything: workouts, budget, session history, your username, and your account. This cannot be undone.
           </Text>
-
-          <TouchableOpacity
-            style={styles.deleteBtn}
-            onPress={() => setDeleteModal(true)}
-          >
+          <TouchableOpacity style={styles.deleteBtn} onPress={() => setDeleteModal(true)}>
             <Text style={styles.deleteBtnText}>DELETE ALL MY DATA</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Admin — Valkyrie grant (spectre.labs only) */}
+        {/* Admin — Valkyrie grant */}
         {isAdmin && (
           <View style={[styles.section, { backgroundColor: cardBg, borderColor: '#3d2a5a' }]}>
             <Text style={[styles.sectionTitle, { color: '#c0c8d8' }]}>⚡ GRANT VALKYRIE</Text>
@@ -329,15 +341,8 @@ export default function SettingsScreen() {
               onChangeText={setGrantUsername}
               autoCapitalize="none"
             />
-            <TouchableOpacity
-              style={[styles.grantBtn, granting && { opacity: 0.5 }]}
-              onPress={handleGrantValkyrie}
-              disabled={granting}
-            >
-              {granting
-                ? <ActivityIndicator color="#0d0618" />
-                : <Text style={styles.grantBtnText}>GRANT VALKYRIE</Text>
-              }
+            <TouchableOpacity style={[styles.grantBtn, granting && { opacity: 0.5 }]} onPress={handleGrantValkyrie} disabled={granting}>
+              {granting ? <ActivityIndicator color="#0d0618" /> : <Text style={styles.grantBtnText}>GRANT VALKYRIE</Text>}
             </TouchableOpacity>
           </View>
         )}
@@ -351,14 +356,20 @@ export default function SettingsScreen() {
       {/* Valkyrie unlock sequence */}
       {showLightning && <ValkyrieLightning onComplete={handleLightningComplete} />}
 
+      {/* Era unlock sequence — fires when leaving SHADOW for the first time */}
+      {showEraUnlock && unlockedTheme && (
+        <ShadowThemeUnlock
+          newTheme={unlockedTheme}
+          onComplete={() => setShowEraUnlock(false)}
+        />
+      )}
+
       {/* Household QR modal */}
       <Modal visible={showQR} transparent animationType="fade">
         <View style={styles.overlay}>
           <View style={[styles.modal, { backgroundColor: cardBg, borderColor: border }]}>
             <Text style={[styles.modalTitle, { color: text }]}>SCAN TO JOIN</Text>
-            <Text style={[styles.modalBody, { color: muted }]}>
-              Have your partner scan this to join {user?.house_name}.
-            </Text>
+            <Text style={[styles.modalBody, { color: muted }]}>Have your partner scan this to join {user?.house_name}.</Text>
             <View style={styles.qrWrap}>
               <QRCode
                 value={`tether://join?house=${encodeURIComponent(user?.house_name ?? '')}`}
@@ -368,10 +379,7 @@ export default function SettingsScreen() {
               />
             </View>
             <Text style={[styles.qrName, { color: accent }]}>{user?.house_name}</Text>
-            <TouchableOpacity
-              style={[styles.modalCancel, { borderColor: border, marginTop: 16 }]}
-              onPress={() => setShowQR(false)}
-            >
+            <TouchableOpacity style={[styles.modalCancel, { borderColor: border, marginTop: 16 }]} onPress={() => setShowQR(false)}>
               <Text style={[styles.modalCancelText, { color: text }]}>Close</Text>
             </TouchableOpacity>
           </View>
@@ -383,10 +391,7 @@ export default function SettingsScreen() {
         <View style={styles.overlay}>
           <View style={[styles.modal, { backgroundColor: cardBg, borderColor: C.red }]}>
             <Text style={[styles.modalTitle, { color: C.red }]}>ARE YOU SURE?</Text>
-            <Text style={[styles.modalBody, { color: text }]}>
-              This deletes your account and all data permanently. There is no recovery.
-            </Text>
-
+            <Text style={[styles.modalBody, { color: text }]}>This deletes your account and all data permanently. There is no recovery.</Text>
             {deleting ? (
               <View style={styles.deletingRow}>
                 <ActivityIndicator color={C.red} />
@@ -394,16 +399,10 @@ export default function SettingsScreen() {
               </View>
             ) : (
               <View style={styles.modalBtns}>
-                <TouchableOpacity
-                  style={[styles.modalCancel, { borderColor: border }]}
-                  onPress={() => setDeleteModal(false)}
-                >
+                <TouchableOpacity style={[styles.modalCancel, { borderColor: border }]} onPress={() => setDeleteModal(false)}>
                   <Text style={[styles.modalCancelText, { color: text }]}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.modalConfirm}
-                  onPress={handleDeleteAccount}
-                >
+                <TouchableOpacity style={styles.modalConfirm} onPress={handleDeleteAccount}>
                   <Text style={styles.modalConfirmText}>DELETE</Text>
                 </TouchableOpacity>
               </View>
@@ -429,69 +428,36 @@ const styles = StyleSheet.create({
   scroll: { padding: 20, paddingBottom: 48 },
   heading: { fontSize: 24, fontWeight: '900', letterSpacing: 3, marginBottom: 4 },
   sub: { fontSize: 13, letterSpacing: 1, marginBottom: 28 },
-
-  section: {
-    borderRadius: 12, borderWidth: 1, padding: 16, marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 10, fontWeight: '700', letterSpacing: 2, marginBottom: 12,
-  },
+  section: { borderRadius: 12, borderWidth: 1, padding: 16, marginBottom: 16 },
+  sectionTitle: { fontSize: 10, fontWeight: '700', letterSpacing: 2, marginBottom: 12 },
   privacyNote: { fontSize: 13, lineHeight: 20 },
-
-  row: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)',
-  },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)' },
   rowBtn: { justifyContent: 'flex-start' },
   rowLabel: { fontSize: 14 },
   rowValue: { fontSize: 14, fontWeight: '600' },
-
   dangerSection: { borderWidth: 1.5 },
   dangerNote: { fontSize: 13, lineHeight: 20, marginBottom: 16 },
-  deleteBtn: {
-    backgroundColor: C.red, borderRadius: 8, paddingVertical: 14,
-    alignItems: 'center',
-  },
+  deleteBtn: { backgroundColor: C.red, borderRadius: 8, paddingVertical: 14, alignItems: 'center' },
   deleteBtnText: { color: '#fff', fontWeight: '800', fontSize: 14, letterSpacing: 1.5 },
-
   footer: { fontSize: 11, textAlign: 'center', marginTop: 8, lineHeight: 18, letterSpacing: 0.5 },
   joinBtn: { borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
   joinBtnText: { color: '#0a0a0a', fontWeight: '700', fontSize: 14, letterSpacing: 2 },
-  themeRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderWidth: 1.5, borderRadius: 10, padding: 14, marginBottom: 8,
-  },
+  themeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderRadius: 10, padding: 14, marginBottom: 8 },
   themeDot: { width: 12, height: 12, borderRadius: 6 },
   themeLabel: { fontSize: 13, fontWeight: '700', letterSpacing: 1.5, marginBottom: 2 },
   themeSub: { fontSize: 11, letterSpacing: 0.5 },
-
   grantInput: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 10 },
   grantBtn: { backgroundColor: '#c0c8d8', borderRadius: 10, padding: 14, alignItems: 'center' },
   grantBtnText: { color: '#0d0618', fontSize: 14, fontWeight: '700', letterSpacing: 2 },
-
-  overlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.85)',
-    alignItems: 'center', justifyContent: 'center', padding: 24,
-  },
-  modal: {
-    width: '100%', borderRadius: 16, borderWidth: 1.5,
-    padding: 24,
-  },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  modal: { width: '100%', borderRadius: 16, borderWidth: 1.5, padding: 24 },
   modalTitle: { fontSize: 18, fontWeight: '900', letterSpacing: 2, marginBottom: 12 },
   modalBody: { fontSize: 14, lineHeight: 22, marginBottom: 24 },
-
   modalBtns: { flexDirection: 'row', gap: 12 },
-  modalCancel: {
-    flex: 1, borderWidth: 1, borderRadius: 8, paddingVertical: 13,
-    alignItems: 'center',
-  },
+  modalCancel: { flex: 1, borderWidth: 1, borderRadius: 8, paddingVertical: 13, alignItems: 'center' },
   modalCancelText: { fontWeight: '600', fontSize: 14 },
-  modalConfirm: {
-    flex: 1, backgroundColor: C.red, borderRadius: 8, paddingVertical: 13,
-    alignItems: 'center',
-  },
+  modalConfirm: { flex: 1, backgroundColor: C.red, borderRadius: 8, paddingVertical: 13, alignItems: 'center' },
   modalConfirmText: { color: '#fff', fontWeight: '800', fontSize: 14 },
-
   deletingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, justifyContent: 'center' },
   deletingText: { fontSize: 14 },
   qrWrap: { alignItems: 'center', marginVertical: 20 },

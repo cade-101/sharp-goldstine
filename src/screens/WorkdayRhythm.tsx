@@ -90,6 +90,7 @@ export default function WorkdayRhythm() {
   const blocksRef = useRef(0);
   const bgTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+ 
 
   useEffect(() => {
     requestNotificationPermission().then(setPermGranted);

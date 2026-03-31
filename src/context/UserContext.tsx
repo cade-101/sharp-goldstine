@@ -28,6 +28,9 @@ type User = {
   spotify_token_expiry?: number | null;
   valkyrie_seen?: boolean;
   household_setup_seen?: boolean;
+  unlocked_themes?: string[];
+  consistency_unlocked_at?: string | null;
+  rank?: number;
   weight_unit?: 'kg' | 'lbs';
   water_goal_units?: number;
   default_water_container?: string;
@@ -43,6 +46,8 @@ type UserContextType = {
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  isDefaultTheme: boolean;
+  goalUnlockReady: boolean;
 };
 
 const UserContext = createContext<UserContextType>({
@@ -53,12 +58,15 @@ const UserContext = createContext<UserContextType>({
   signOut: async () => {},
   deleteAccount: async () => {},
   refreshUser: async () => {},
+  isDefaultTheme: true,
+  goalUnlockReady: false,
 });
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [healthData, setHealthData] = useState<HealthData>(null);
+  const [goalUnlockReady, setGoalUnlockReady] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -100,20 +108,52 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     registerPushToken(userId);
 
     // Pull wearable data in background — non-blocking
-    syncHealthData(userId);
+    syncHealthData(userId, data);
 
     // Set up interactive push categories and check for pending clarifications
     setupClarifyCategory();
     checkAndSendPendingClarifications(userId);
   }
 
-  async function syncHealthData(userId: string) {
+  async function syncHealthData(userId: string, currentProfile?: User) {
     try {
       const data = await getAllHealthData();
       if (!data) return;
       setHealthData(data);
 
       // Persist to Supabase for fitness-engine context
+      const { data: snapshot } = await supabase.from('user_context_snapshots')
+        .select('snapshot')
+        .eq('user_id', userId)
+        .order('computed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const context = snapshot?.snapshot;
+      if (context) {
+        const updates: Partial<User> = {};
+        const unlocked = new Set(currentProfile?.unlocked_themes ?? ['iron']);
+
+        // Performance Unlocks
+        if (context.consistency?.isConsistent && !currentProfile?.goal_unlocked && !currentProfile?.consistency_unlocked_at) {
+          await checkGoalUnlock(userId);
+        }
+
+        // Trait-based Unlocks
+        if (context.prsLast14d >= 3) unlocked.add('dragonfire'); // Intensity
+        if (context.avgBrainState7d >= 3.5) unlocked.add('arcane'); // Strategic/Focus
+        
+        // Check if unlocked set changed
+        if (unlocked.size !== (currentProfile?.unlocked_themes?.length ?? 0)) {
+          updates.unlocked_themes = Array.from(unlocked);
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await supabase.from('user_profiles').update(updates).eq('id', userId);
+          refreshUser();
+        }
+      }
+
       await supabase.from('health_snapshots').upsert({
         user_id: userId,
         date: new Date().toISOString().split('T')[0],
@@ -153,6 +193,21 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     if (session) loadProfile(session.user.id);
   }
 
+  async function checkGoalUnlock(userId: string) {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+    const { count } = await supabase
+      .from('workout_sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('started_at', thirtyDaysAgo);
+
+    if (count && count >= 8) {
+      await supabase.from('user_profiles').update({ consistency_unlocked_at: new Date().toISOString() }).eq('id', userId);
+      setGoalUnlockReady(true);
+      refreshUser();
+    }
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
     setUser(null);
@@ -178,8 +233,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       supabase.from('workday_sessions').delete().eq('user_id', userId),
       supabase.from('budget_expenses').delete().eq('user_id', userId),
       supabase.from('user_context_snapshots').delete().eq('user_id', userId),
-      supabase.from('props').delete().eq('from_user_id', userId),
-      supabase.from('props').delete().eq('to_user_id', userId),
+      supabase.from('props').delete().eq('from_user', userId),
+      supabase.from('props').delete().eq('to_user', userId),
       supabase.from('household_events').delete().eq('triggered_by', userId),
     ]);
 
@@ -212,8 +267,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       supabase.from('workday_sessions').delete().eq('user_id', pendingId),
       supabase.from('budget_expenses').delete().eq('user_id', pendingId),
       supabase.from('user_context_snapshots').delete().eq('user_id', pendingId),
-      supabase.from('props').delete().eq('from_user_id', pendingId),
-      supabase.from('props').delete().eq('to_user_id', pendingId),
+      supabase.from('props').delete().eq('from_user', pendingId),
+      supabase.from('props').delete().eq('to_user', pendingId),
       supabase.from('household_events').delete().eq('triggered_by', pendingId),
     ]);
     await supabase.from('user_profiles').delete().eq('id', pendingId);
@@ -221,10 +276,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     await SecureStore.deleteItemAsync(PENDING_DELETE_KEY);
   }
 
-  const themeTokens = getTheme(user?.theme ?? 'iron');
+  const themeTokens = getTheme(user?.theme ?? null);
+  const isDefaultTheme = !user?.theme || user.theme.toUpperCase() === 'SHADOW';
 
   return (
-    <UserContext.Provider value={{ user, loading, themeTokens, healthData, signOut, deleteAccount, refreshUser }}>
+    <UserContext.Provider value={{ user, loading, themeTokens, healthData, signOut, deleteAccount, refreshUser, isDefaultTheme, goalUnlockReady }}>
       {children}
     </UserContext.Provider>
   );

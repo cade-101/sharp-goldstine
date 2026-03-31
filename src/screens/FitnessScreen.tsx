@@ -30,6 +30,7 @@ import {
 } from '../lib/spotifyService';
 import { SPOTIFY_CLIENT_ID as SPOT_ID } from '../lib/config';
 import { callEdgeFunction } from '../lib/callEdgeFunction';
+import { useThemeIntensity } from '../lib/useThemeIntensity';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -45,6 +46,7 @@ const MODES = [
   { id: 'quick',  icon: '⚡', label: 'QUICK HITS', sub: '3-7 min. Invisible. No sweat. Do it at your desk.',  color: null },
   { id: 'joint',  icon: '🤝', label: 'JOINT OPS',  sub: 'Same workout. Both of you. Head-to-head.',           color: null },
 ] as const;
+
 
 type ModeId = typeof MODES[number]['id'];
 
@@ -143,6 +145,16 @@ export default function FitnessScreen() {
   const { user, themeTokens: C, healthData } = useUser();
   const isForm = C.mode === 'light';
   const s = makeStyles(C);
+
+  const { intensityStyles, intensityState } = useThemeIntensity({
+    module: 'fitness',
+    params: {
+      sessionsThisWeek: weeklyBrief?.dayBriefs ? Object.keys(weeklyBrief.dayBriefs).length : 0,
+      hrv: healthData?.hrv,
+      sleepHours: healthData?.sleep?.hours,
+      mode: screen === 'workout' ? sessionMode : 'plan'
+    }
+  });
 
   // Navigation
   const [screen, setScreen] = useState<Screen>('home');

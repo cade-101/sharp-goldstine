@@ -17,3 +17,5 @@ export const VOID = {
   mode:      'dark' as const,
   name:      'VOID',
 };
+
+export default VOID;

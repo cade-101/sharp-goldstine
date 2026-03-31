@@ -15,3 +15,5 @@ export const IRON = {
   mode:      'dark' as const,
   name:      'IRON',
 };
+
+export default IRON;

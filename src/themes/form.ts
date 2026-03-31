@@ -15,3 +15,5 @@ export const FORM = {
   mode:      'light' as const,
   name:      'FORM',
 };
+
+export default FORM;

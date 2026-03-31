@@ -23,3 +23,5 @@ export const RONIN = {
   success:    '#4a7c59',
   rank_labels: ['浪人', '足軽', '侍', '武士', '大将', '伝説'],
 };
+
+export default RONIN;

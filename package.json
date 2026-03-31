@@ -21,6 +21,7 @@
     "expo-auth-session": "^55.0.9",
     "expo-av": "^16.0.8",
     "expo-background-fetch": "~55.0.10",
+    "expo-build-properties": "~55.0.10",
     "expo-calendar": "~55.0.10",
     "expo-dev-client": "~55.0.19",
     "expo-file-system": "~55.0.12",

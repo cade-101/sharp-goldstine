@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '../context/UserContext';
 import { supabase } from '../lib/supabase';
 import { sendPushNotification } from '../lib/sendPushNotification';
+import { ANTHROPIC_API_KEY } from '../lib/config';
 import { logEvent } from '../lib/logEvent';
 import { callEdgeFunction } from '../lib/callEdgeFunction';
 
@@ -71,6 +72,45 @@ function dateString(): string {
   return now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase();
 }
 
+interface MissionStep {
+  text: string;
+  done: boolean;
+}
+
+interface Mission {
+  text: string;
+  steps: MissionStep[];
+  expanded: boolean;
+  done: boolean;
+}
+
+async function generateSubSteps(missionText: string): Promise<string[]> {
+  if (!missionText.trim()) return [];
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        system: 'You are an ADHD task breakdown assistant. Break household missions into exactly 3 tiny, actionable steps. Keep each step under 6 words. Return JSON array of strings only.',
+        messages: [{ role: 'user', content: missionText }],
+      }),
+    });
+    const data = await response.json();
+    const text = data.content?.[0]?.text || '[]';
+    const cleaned = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.log('[WarRoom] AI breakdown failed:', e);
+    return [];
+  }
+}
+
 // ── INTEL TYPES ───────────────────────────────────────────────────────────────
 type IntelMode = 'photo' | 'screenshot' | 'voice' | 'text';
 type IntelQueueItem = {
@@ -84,12 +124,16 @@ type IntelQueueItem = {
 
 // ── COMPONENT ─────────────────────────────────────────────────────────────────
 export default function WarRoom() {
-  const { user, themeTokens: T, healthData } = useUser();
+  const { user, themeTokens: T, healthData, goalUnlockReady, refreshUser } = useUser();
   const navigation = useNavigation<any>();
 
   const [now, setNow] = useState(timeString());
   const [brainState, setBrainState] = useState<BrainStateId | null>(null);
   const [savingBrain, setSavingBrain] = useState(false);
+  
+  // Consistency / Goal tracking
+  const [consistency, setConsistency] = useState<{ last30Days: number; isConsistent: boolean } | null>(null);
+  const [loadingConsistency, setLoadingConsistency] = useState(false);
   const [reconExpanded, setReconExpanded] = useState(false);
 
   // Incoming signals (unread props)
@@ -100,7 +144,7 @@ export default function WarRoom() {
   const [partner, setPartner] = useState<{ id: string; username: string; theme: string } | null>(null);
 
   // Missions (stored locally in memory between mounts, simple strings)
-  const [missions, setMissions] = useState<string[]>(['', '', '']);
+  const [missions, setMissions] = useState<Mission[]>([]);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
 
@@ -125,6 +169,9 @@ export default function WarRoom() {
   const [showPantry, setShowPantry] = useState(false);
 
   // Water tracker
+  const [showGoalSelector, setShowGoalSelector] = useState(false);
+  const [selectingGoal, setSelectingGoal] = useState(false);
+
   const [waterLog, setWaterLog] = useState<Array<{ id: string; amount_ml: number; container: string; drink_type: string; logged_at: string }>>([]);
   const [showContainerPicker, setShowContainerPicker] = useState(false);
 
@@ -148,10 +195,22 @@ export default function WarRoom() {
     (async () => {
       const today = new Date().toISOString().split('T')[0];
       const savedDate = await AsyncStorage.getItem(MISSIONS_DATE_KEY);
+      const raw = await AsyncStorage.getItem(MISSIONS_KEY);
+      let parsed: any[] = [];
+      try { parsed = raw ? JSON.parse(raw) : []; } catch {}
+
+      // Migration check: convert string[] to Mission[]
+      if (parsed.length > 0 && typeof parsed[0] === 'string') {
+        parsed = parsed.map(t => ({ text: t, steps: [], expanded: false, done: false }));
+      }
+
       if (savedDate !== today) {
         // New day — reset missions, pre-populate training mission if today is a training day
         await AsyncStorage.setItem(MISSIONS_DATE_KEY, today);
-        const initial: string[] = ['', '', ''];
+        const initial: Mission[] = Array.from({ length: 3 }, () => ({
+          text: '', steps: [], expanded: false, done: false
+        }));
+
         const trainingDays: number[] = (user as any)?.training_days ?? [];
         const todayDow = new Date().getDay();
         if (trainingDays.includes(todayDow)) {
@@ -166,13 +225,19 @@ export default function WarRoom() {
           const labels = SPLIT_LABELS[sorted.length] ?? ['FULL'];
           const split = labels[idx] ?? 'FULL';
           const theme = ((user as any)?.theme ?? 'tether').toUpperCase();
-          initial[0] = `${theme} — ${split} DAY 💪`;
+          const missionText = `${theme} — ${split} DAY 💪`;
+          initial[0].text = missionText;
+          const steps = await generateSubSteps(missionText);
+          initial[0].steps = steps.map(s => ({ text: s, done: false }));
+          initial[0].expanded = true;
         }
         await AsyncStorage.setItem(MISSIONS_KEY, JSON.stringify(initial));
         setMissions(initial);
       } else {
-        const raw = await AsyncStorage.getItem(MISSIONS_KEY);
-        if (raw) setMissions(JSON.parse(raw));
+        if (parsed.length === 0) {
+          parsed = Array.from({ length: 3 }, () => ({ text: '', steps: [], expanded: false, done: false }));
+        }
+        setMissions(parsed);
       }
     })();
   }, [user?.id]);
@@ -182,7 +247,28 @@ export default function WarRoom() {
     loadPartner();
     loadNudges();
     loadCalendar();
-  }, [user?.house_name, user?.id]));
+  }, [user?.house_name, user?.id, user?.goal_unlocked, user?.rank]));
+
+  async function loadConsistency() {
+    if (user?.id) loadConsistencyData();
+  }
+
+  async function loadConsistencyData() {
+    if (!user?.id) return;
+    setLoadingConsistency(true);
+    const { data } = await supabase
+      .from('user_context_snapshots')
+      .select('snapshot')
+      .eq('user_id', user.id)
+      .order('computed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (data?.snapshot?.consistency) {
+      setConsistency(data.snapshot.consistency);
+    }
+    setLoadingConsistency(false);
+  }
 
   async function loadSignals() {
     if (!user?.id) return;
@@ -348,17 +434,19 @@ export default function WarRoom() {
     if (!user?.id) return;
     // Add any unsent text first
     const remaining = intelTextInput.trim();
+    let currentQueue = [...intelQueue];
     if (remaining) {
       const queueId = `txt_${Date.now()}`;
-      setIntelQueue(q => [...q, { id: queueId, type: 'text', content: remaining, status: 'pending' }]);
+      const newItem: IntelQueueItem = { id: queueId, type: 'text', content: remaining, status: 'pending' };
+      currentQueue.push(newItem);
+      setIntelQueue(currentQueue);
       setIntelTextInput('');
     }
 
     setIntelFiling(true);
 
     // Process all pending text items
-    const pending = [...intelQueue, ...(remaining ? [{ id: `txt_${Date.now()}`, type: 'text' as const, content: remaining, status: 'pending' as const }] : [])]
-      .filter(i => i.type === 'text' && i.status === 'pending');
+    const pending = currentQueue.filter(i => i.type === 'text' && i.status === 'pending');
 
     for (const item of pending) {
       setIntelQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'processing' } : i));
@@ -463,10 +551,49 @@ export default function WarRoom() {
     setSavingBrain(false);
   }
 
-  function saveMission(idx: number) {
+  function toggleStep(missionIdx: number, stepIdx: number) {
     const updated = [...missions];
-    updated[idx] = editText;
+    const m = updated[missionIdx];
+    m.steps[stepIdx].done = !m.steps[stepIdx].done;
+    m.done = m.steps.length > 0 && m.steps.every(s => s.done);
     setMissions(updated);
+    AsyncStorage.setItem(MISSIONS_KEY, JSON.stringify(updated));
+  }
+
+  function toggleExpand(idx: number) {
+    const updated = [...missions];
+    updated[idx].expanded = !updated[idx].expanded;
+    setMissions(updated);
+    AsyncStorage.setItem(MISSIONS_KEY, JSON.stringify(updated));
+  }
+
+  async function saveMission(idx: number) {
+    const text = editText.trim();
+    if (!text) {
+      const updated = [...missions];
+      updated[idx] = { text: '', steps: [], expanded: false, done: false };
+      setMissions(updated);
+      AsyncStorage.setItem(MISSIONS_KEY, JSON.stringify(updated));
+      setEditingIdx(null);
+      setEditText('');
+      return;
+    }
+
+    const updated = [...missions];
+    const prevText = updated[idx]?.text || '';
+    
+    if (text !== prevText) {
+      updated[idx] = { text, steps: [], expanded: false, done: false };
+      setMissions([...updated]);
+      
+      const steps = await generateSubSteps(text);
+      if (steps.length > 0) {
+        updated[idx].steps = steps.map(s => ({ text: s, done: false }));
+        updated[idx].expanded = true;
+        setMissions([...updated]);
+      }
+    }
+
     AsyncStorage.setItem(MISSIONS_KEY, JSON.stringify(updated));
     setEditingIdx(null);
     setEditText('');
@@ -475,10 +602,45 @@ export default function WarRoom() {
   const s = makeStyles(T);
   const hour = new Date().getHours();
   const greeting = getGreeting(hour, user?.theme ?? 'iron');
+  const userRank = user?.rank ?? 1;
   const themeBadge = (user?.theme ?? 'iron').toUpperCase();
+
+  async function handleSetGoal(goalText: string) {
+    if (!user?.id) return;
+    setSelectingGoal(true);
+    await supabase.from('user_goals').insert({
+      user_id: user.id,
+      goal_text: goalText,
+      target_value: 1, // Placeholder
+    });
+    await supabase.from('user_profiles').update({ macro_tier: 1, goal_unlocked: true }).eq('id', user.id);
+    await refreshUser();
+    setSelectingGoal(false);
+    setShowGoalSelector(false);
+  }
 
   return (
     <SafeAreaView style={s.safe}>
+        {/* ── GOAL UNLOCK PROMPT ──────────────────────────────────────────────── */}
+        {goalUnlockReady && !user?.goal_unlocked && (
+          <Modal visible={true} animationType="slide">
+            <View style={[s.center, { flex: 1, backgroundColor: T.bg, padding: 30 }]}>
+              <Text style={{ fontSize: 40, marginBottom: 20 }}>🏆</Text>
+              <Text style={[s.goalValue, { textAlign: 'center', marginBottom: 10 }]}>YOU'VE BEEN SHOWING UP.</Text>
+              <Text style={[s.muted, { textAlign: 'center', marginBottom: 30 }]}>Consistency unlocked. Time to pick a target.</Text>
+              
+              {['Hit a 225lb Bench Press', 'Run a local 5K', '7 Days of perfect hydration'].map(g => (
+                <TouchableOpacity 
+                  key={g} 
+                  style={[s.intelBtn, { width: '100%', marginBottom: 12 }]}
+                  onPress={() => handleSetGoal(g)}
+                >
+                  <Text style={s.intelLabel}>{g.toUpperCase()}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </Modal>
+        )}
       <StatusBar barStyle={T.mode === 'light' ? 'dark-content' : 'light-content'} />
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
 
@@ -496,6 +658,40 @@ export default function WarRoom() {
             <Text style={s.callsign}>OPERATIVE: {user.username.toUpperCase()}</Text>
           )}
         </View>
+
+        {/* ── GOAL CARD ───────────────────────────────────────────────────────── */}
+        {user?.goal_unlocked && (
+          <View style={s.goalCard}>
+            <View style={s.goalHeader}>
+              <View>
+                <Text style={s.goalLabel}>CURRENT RANK</Text>
+                <Text style={s.goalValue}>
+                  {['RECRUIT', 'SOLDIER', 'VETERAN', 'ELITE', 'COMMANDER', 'LEGENDARY'][userRank - 1] || 'RECRUIT'}
+                </Text>
+              </View>
+              <View style={s.rankBadge}>
+                <Text style={s.rankBadgeText}>{userRank}</Text>
+              </View>
+            </View>
+            
+            <View style={s.progressSection}>
+              <View style={s.progressLabels}>
+                <Text style={s.nextRankLabel}>
+                  NEXT: {['RECRUIT', 'SOLDIER', 'VETERAN', 'ELITE', 'COMMANDER', 'LEGENDARY'][userRank] || 'MAX'}
+                </Text>
+                <Text style={s.progressText}>
+                  {loadingConsistency ? '...' : `${consistency?.last30Days ?? 0} / 8 sessions`}
+                </Text>
+              </View>
+              <View style={s.progressBarBg}>
+                <View style={[
+                  s.progressBarFill, 
+                  { width: `${Math.min(((consistency?.last30Days ?? 0) / 8) * 100, 100)}%` }
+                ]} />
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* ── INTEL ───────────────────────────────────────────────────────────── */}
         <View style={s.section}>
@@ -630,31 +826,55 @@ export default function WarRoom() {
           )}
 
           {missions.map((m, i) => (
-            <View key={i} style={s.missionRow}>
-              <Text style={s.missionNum}>{calEvents.length + i + 1}</Text>
-              {editingIdx === i ? (
-                <TextInput
-                  style={s.missionInput}
-                  value={editText}
-                  onChangeText={setEditText}
-                  onSubmitEditing={() => saveMission(i)}
-                  onBlur={() => saveMission(i)}
-                  autoFocus
-                  returnKeyType="done"
-                  placeholderTextColor={T.muted}
-                  placeholder="Enter mission..."
-                />
-              ) : (
-                <TouchableOpacity
-                  style={s.missionTextWrap}
-                  onPress={() => { setEditingIdx(i); setEditText(m); }}
-                  activeOpacity={0.7}
+            <View key={i}>
+              <View style={s.missionRow}>
+                <Text style={s.missionNum}>{calEvents.length + i + 1}</Text>
+                {editingIdx === i ? (
+                  <TextInput
+                    style={s.missionInput}
+                    value={editText}
+                    onChangeText={setEditText}
+                    onSubmitEditing={() => saveMission(i)}
+                    onBlur={() => saveMission(i)}
+                    autoFocus
+                    returnKeyType="done"
+                    placeholderTextColor={T.muted}
+                    placeholder="Enter mission..."
+                  />
+                ) : (
+                  <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                    <TouchableOpacity
+                      style={s.missionTextWrap}
+                      onPress={() => { setEditingIdx(i); setEditText(m.text); }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[
+                        m.text ? s.missionText : s.missionPlaceholder,
+                        m.done && { textDecorationLine: 'line-through', color: T.muted }
+                      ]}>
+                        {m.text || 'TAP TO SET MISSION...'}
+                      </Text>
+                    </TouchableOpacity>
+                    {m.steps.length > 0 && (
+                      <TouchableOpacity onPress={() => toggleExpand(i)} style={{ padding: 10 }}>
+                        <Text style={{ color: T.accent, fontSize: 10 }}>{m.expanded ? '▲' : '▼'}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+              </View>
+              {m.expanded && m.steps.map((step, si) => (
+                <TouchableOpacity 
+                  key={si} 
+                  style={s.stepRow} 
+                  onPress={() => toggleStep(i, si)}
                 >
-                  <Text style={m ? s.missionText : s.missionPlaceholder}>
-                    {m || 'TAP TO SET MISSION...'}
-                  </Text>
+                  <View style={[s.stepCheck, step.done && { backgroundColor: T.accent, borderColor: T.accent }]}>
+                    {step.done && <Text style={s.stepCheckText}>✓</Text>}
+                  </View>
+                  <Text style={[s.stepText, { color: step.done ? T.muted : T.text }]}>{step.text}</Text>
                 </TouchableOpacity>
-              )}
+              ))}
             </View>
           ))}
         </View>
@@ -1143,6 +1363,48 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       color: T.muted,
       letterSpacing: 3,
     },
+    // Goal Card
+    goalCard: {
+      backgroundColor: T.card,
+      borderWidth: 1,
+      borderColor: T.accent,
+      borderRadius: 14,
+      padding: 18,
+      marginBottom: 24,
+    },
+    goalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    goalLabel: { fontSize: 10, fontWeight: '800', color: T.muted, letterSpacing: 2 },
+    goalValue: { fontSize: 24, fontWeight: '900', color: T.accent, letterSpacing: 1 },
+    rankBadge: {
+      width: 36, height: 36, borderRadius: 18, backgroundColor: T.accent,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    rankBadgeText: { color: T.bg, fontWeight: '900', fontSize: 18 },
+    progressSection: { marginTop: 4 },
+    progressLabels: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    nextRankLabel: { fontSize: 11, fontWeight: '800', color: T.text, letterSpacing: 1 },
+    progressText: { fontSize: 11, color: T.muted },
+    progressBarBg: {
+      height: 6,
+      backgroundColor: T.border,
+      borderRadius: 3,
+      overflow: 'hidden',
+    },
+    progressBarFill: {
+      height: '100%',
+      backgroundColor: T.accent,
+      borderRadius: 3,
+    },
     section: {
       marginBottom: 28,
     },
@@ -1223,6 +1485,22 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       fontSize: 14,
       color: T.text,
       paddingVertical: 0,
+    },
+    stepRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingLeft: 40,
+      paddingVertical: 10,
+      gap: 12,
+    },
+    stepCheck: {
+      width: 18, height: 18, borderRadius: 4,
+      borderWidth: 1.5, borderColor: T.muted,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    stepCheckText: { color: T.bg, fontSize: 12, fontWeight: '900' },
+    stepText: {
+      fontSize: 13, fontWeight: '500',
     },
     // Signals
     signalCard: {

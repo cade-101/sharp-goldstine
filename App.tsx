@@ -107,6 +107,7 @@ function MainApp() {
     void:       { warroom: '🛸', work: '🖥️', fitness: '🌌',  armory: '💎', settings: '🔧' },
     verdant:    { warroom: '🌿', work: '🌱', fitness: '🌿',  armory: '🌾', settings: '🍃' },
     form:       { warroom: '🌸', work: '✨', fitness: '🌸',  armory: '💎', settings: '🌺' },
+    shadow:     { warroom: '🎯', work: '⏱', fitness: '🔥',  armory: '💰', settings: '⚙️' },
   };
 
   const TAB_LABELS: Record<string, {
@@ -121,6 +122,7 @@ function MainApp() {
     void:       { warroom: 'WAR ROOM', work: 'WORK', fitness: 'VOID',     armory: 'ARMORY', settings: 'SETTINGS' },
     verdant:    { warroom: 'WAR ROOM', work: 'WORK', fitness: 'VERDANT',  armory: 'ARMORY', settings: 'SETTINGS' },
     form:       { warroom: 'WAR ROOM', work: 'WORK', fitness: 'FORM',     armory: 'ARMORY', settings: 'SETTINGS' },
+    shadow:     { warroom: 'WAR ROOM', work: 'WORK', fitness: 'TRAINING', armory: 'ARMORY', settings: 'COMMAND' },
   };
 
   const icons = TAB_ICONS[theme] ?? TAB_ICONS.iron;

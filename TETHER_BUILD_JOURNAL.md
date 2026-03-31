@@ -1,5 +1,5 @@
 # TETHER — BUILD JOURNAL
-*Last updated: March 31, 2026 (Sessions 27–32)*
+*Last updated: March 31, 2026 (Sessions 27–34)*
 
 ---
 
@@ -34,6 +34,7 @@
 - EMFILE too many open files → `brew install watchman` — one time, done forever
 - npm peer conflicts → always `--legacy-peer-deps`
 - Supabase SUPABASE_ secrets blocked → don't set them, they're auto-injected
+- **minSdkVersion not applying in EAS build → `android.minSdkVersion` in `app.config.js` does NOT set Gradle minSdk. Use `expo-build-properties` plugin:** `["expo-build-properties", { "android": { "minSdkVersion": 26 } }]` — this is the only thing that actually works in Expo SDK 55 (confirmed Session 30)
 
 ---
 
@@ -1599,6 +1600,280 @@ Shame is the #1 barrier to financial health for ADHD brains. Never show the full
 Tether tells you exactly when and where to move money. No decisions required. Just follow the instructions.
 
 **Payday sequence (every 2nd Friday):**
+1. Notification at midnight when pay lands: "Payday
+1. **Goal unlock flow** — consistency detection fires push, War Room goal card appears.
+2. **Macro tiers** — protein-only unlocks after goal set.
+3. **"Thinking of You" button** — library implementation.
+4. **Spotify Full Test** — wire and test full OAuth flow with Client ID.
+
+### Architecture (before public launch)
+- **SPECTRELABS_ETHICS_KEY** — add to codebase. Feu Follet commitment 03.
+- **GitHub repo public** — Feu Follet commitment 04.
+- **RLS on all tables** — push_token + user_events done. Remaining tables need audit before launch.
+- **Remove legacy tables** — `gym_sessions`, `gym_profiles` after Battle Mode redesign confirmed working.
+
+### Backlog (logged, not this session)
+- Household pairing + PR notifications to partner
+- Props wired into workout completion flow
+- Variable training days in onboarding
+- Hard stop time setting in onboarding
+- HouseholdSetup wired into AuthScreen
+- Body scan + macro module
+- Wearable integration (Garmin/Apple Health)
+- Nightmare watch buzz (future, clinical oversight required)
+
+- First login → onboarding flow → everything saved to account
+- Mass market user → sees their own program.
+
+### Onboarding Flow (snappy — max 90 seconds)
+Keep it moving, never lose them. 5 quick screens:
+1. **Who are you training for?** (Yourself / A partner / Both)
+2. **Your goal** — single select: Build muscle / Lose fat / Get stronger / Just move / All of the above
+3. **Training days** — tap the days you can train (Mon-Sun grid)
+4. **Your gym** — Home (no equipment) / Home (some equipment) / Full gym / Varies
+5. **Body focus** — multi-select chips: Glutes / Chest / Back / Shoulders / Arms / Legs / Core / Balanced
+   - Optional: "Anything you want to flag?" free text (e.g. "bigger shoulders", "bad knees", "post-partum")
+
+That's it. Program generated. Can always adjust later.
+
+### Adaptive Programming
+- **Plateau detection** — if same weight logged 3+ sessions in a row on main lift → suggest progression (deload, rep range change, exercise swap)
+- **Goal input** — "bigger shoulders" note → next program cycle prioritizes lateral raises, overhead press volume
+- **Free text adjustments** — user types anything → AI interprets and adjusts next workout
+- **Progressive overload tracking** — suggests weight increases when target reps hit 2 sessions in a row
+
+### Body Scan + Macro Integration (separate module, ties to Fitness)
+- Body scan: periodic photo check-in (front/side/back) — AI tracks visual changes over time, no weight obsession
+- Macro tracking: cal + protein only (not obsessive) — feeds into workout adjustments
+- If cutting → cardio increases, volume slightly reduces
+- If bulking → volume prioritized, cardio optional
+- Body scan + macros + workout data → Pendulum feature (peak focus + recovery windows)
+
+### Equipment-Aware Programming
+- Full gym: barbell everything
+- Some equipment: DB + bodyweight alternatives auto-substituted
+- Home/no equipment: full bodyweight program generated
+- Travels: hotel room mode — no equipment, 30 min, anywhere
+
+### Schedule
+- Mon — Legs (post-drive, Saskatoon gym)
+- Thu — Push (office day, Saskatoon gym) ⚡ CHEST WEAK POINT
+- Fri — Pull (6:00-7:15am, before office)
+
+### Hard Stop: 75 minutes
+Auto-compress logic:
+- >60 min remaining: full program
+- 45-60 min: cut 1 set from each accessory
+- 30-45 min: cut last accessory exercise, reduce all accessory to 2 sets
+- <30 min: main lifts only, 3 sets each
+- <15 min: skip — log as missed, no guilt
+
+Rest time compression:
+- Full time: 3min main / 90s accessory
+- Tight: 2min main / 60s accessory
+- Very tight: 90s main / 45s accessory
+
+### Monday — Legs
+- Barbell Back Squat 4×5 (3min rest)
+- Romanian Deadlift 4×6
+- Leg Press 3×10 (feet high, glutes)
+- Bulgarian Split Squat 3×8ea
+- Leg Curl 3×12
+- Standing Calf Raise 4×15
+
+### Thursday — Push ⚡ CHEST WEAK POINT
+- Flat DB Bench Press 4×6 ⚡ priority
+- Incline DB Press 4×8 ⚡ upper chest
+- Machine Chest Press 3×10 ⚡ volume
+- Seated DB Shoulder Press 4×8
+- Cable Lateral Raise 3×15
+- Tricep Pushdown 3×12
+- Overhead Tricep Ext 3×10
+
+### Friday — Pull
+- Deadlift 4×5 (3min rest)
+- Barbell Row 4×6
+- Lat Pulldown 3×10
+- Cable Row 3×12
+- Barbell Curl 3×10
+- Hammer Curl 3×12
+- Wrist Roller 3×fail
+
+### Individual Goals
+**Cade:**
+- Build size + strength, 3-day program hard enough no 4th day needed
+- Chest: ⚡ WEAK POINT — extra volume every Push day
+- Cardio: C25K integrated (9wk program), 3 sessions/week on gym days
+- Nutrition: 2,000-2,400 cal (Topiramate adjusted), 120-140g protein, no hunger cues
+- PRs: Track every lift, celebrate weekly bests
+
+**Danielle:**
+- Days: Tuesday + Wednesday
+- Split: Self-selected via onboarding
+- No C25K (already runs)
+- PRs: Track every lift
+
+### Battle Mode — Cade vs Danielle
+Scoring:
+- Session completed: 10 pts
+- PR hit: 25 pts
+- On-time start: 5 pts
+- Exercise volume win: 15 pts/exercise
+- C25K session (Cade only): 10 pts bonus
+- Weekly winner picks Saturday activity
+
+Exercise Battle: same exercise, both log it → app compares weight×reps → weekly trophy 🏆
+
+Display:
+- Home screen widget — live score this week
+- End of session — point breakdown
+- Sunday night — weekly recap notification
+- All-time record per exercise (both)
+
+## BATTLE MODE — FULL REDESIGN SPEC
+
+### Two Modes
+
+---
+
+### 🤝 JOINT OPS
+*Activated intentionally — rare occasions when both are in the gym at the same time (together or hundreds of miles apart simultaneously)*
+
+**How it works:**
+- Either partner activates from their Fitness home screen
+- App looks at BOTH users' full workout history
+- Generates a completely new workout neither has done recently — mix of stuff they're both good and bad at
+- Designed so both can win (different metrics: 1RM, reps to failure, volume, etc.)
+- Both get the same workout on their respective screens simultaneously
+
+**Competition:**
+- Head-to-head scoring on shared exercises (1RM, reps to failure, volume)
+- Designed so both CAN win — different categories, different strengths
+- Score tracked per session + lifetime leaderboard
+
+**Shit talk:**
+- Both wearing headphones — communication is through the app
+- Shit talk button available throughout the workout
+- Tap it after a lift → sends a shit talk message to partner at that exact point in their workout (same exercise, same moment)
+- Messages are timed to the workout position, not wall clock
+- Both partners can add to the shit talk library anytime (like the "thinking of you" button — same UX)
+- Library grows over time, gets more personal
+
+**Props:**
+- Send props the same way — tap after a lift, partner gets it at that point in their workout
+- Props library also user-customizable
+
+---
+
+### 👻 GHOST PROTOCOL
+*App-initiated, surprise, unpredictable — keeps both guessing*
+
+**How it works:**
+- User taps "Do Workout" on their normal Fitness screen
+- Screen MELTS away (animation)
+- GHOST PROTOCOL appears — no warning, no opt-out
+- App generates the same type of workout as Joint Ops (based on both histories, stuff they've missed, mix of strengths/weaknesses)
+- They do it. Score logged.
+- Partner doesn't know it happened yet.
+
+**The timing:**
+- App decides when to trigger Ghost Protocol for each person — independently
+- Could be next workout. Could be next week. Could be 3 weeks from now.
+- Neither person knows when theirs is coming or when the other person's was triggered
+- App tracks both and ensures both get hit within a reasonable window (so it doesn't go stale)
+
+**The reveal:**
+- After Person A's Ghost Protocol session → their score is locked and waiting
+- Sometime later, Person B's Ghost Protocol fires
+- When Person B finishes → BOTH scores revealed simultaneously
+- Full breakdown: who won what, by how much
+- Lifetime score updated
+
+**Shit talk timing:**
+- Person A does their session first, taps shit talk after key lifts
+- That shit talk is timestamped to the specific exercise
+- When Person B hits that same exercise in their session → the shit talk fires
+- Person B has no idea when it's coming — just gets roasted mid-lift
+- Person B can fire back (their shit talk gets queued for whenever Person A's next Ghost Protocol fires)
+
+**Score tracking:**
+- Same metrics as Joint Ops (1RM, reps to failure, volume per exercise)
+- Separate lifetime Ghost Protocol leaderboard
+- "Ambush record" — how many times each person has been caught off guard
+
+---
+
+### Shared Features (both modes)
+- Shit talk library: both partners build it over time, tap to add anytime from home screen
+- Props library: same
+- Lifetime score: Joint Ops record + Ghost Protocol record tracked separately + combined
+- All shit talk timestamped and tied to specific exercises so delivery is contextually perfect
+- "Thinking of you" button — still needs to be built (logged separately)
+- Props — still needs to be built (logged separately)
+
+---
+
+### Technical Notes
+- Ghost Protocol trigger: weighted random — app checks last Ghost Protocol date for each user, applies a probability that increases the longer it's been since the last one. Never more than X weeks apart.
+- Workout generation: Anthropic call with both users' full exercise history, generates a balanced challenge
+- Shit talk delivery: tied to `ExercisePerformance` event timestamp, not wall clock — so it fires when partner reaches that exercise regardless of how long their rest times are — One tap at session start. Selects a station (bench+DBs, cables, squat rack, machines) and auto-reorganizes the entire workout so all exercises stay in that zone. No bouncing around a crowded gym. AI picks best substitute exercises for equipment already claimed.
+
+- **BEAST MODE** — Home screen "LFG" button. Triggered when pissed/anxious/need to shut brain off. Switches to circuit mode: heavy, no tracking, just go. Audio-driven: beep = move, next exercise read out loud via text-to-speech. Profanity-level motivational cues ("let's f***ing go", "stop being a b****"). Hard stop 10 min earlier than normal (65 min instead of 75) so there's time to not die before work. No set logging, no rest timers — just survive it. Post-session: simple "you did it" screen, no stats.
+
+- **One More Set** — When hard stop timer fires, instead of ending: "ONE MORE SET?" button appears. Taps it → auto-generates a 3x dropset of the last exercise logged (same weight structure, drop 20% each set). Timer gives exactly 3 min to finish and get out. No snoozing — after 3 min it locks. Same feature for both Cade and D.
+
+- **Surprise Battle Mode** — Randomly triggers on a Wed/Thu (unannounced). First person to open the app that day gets the surprise — has to do a special head-to-head challenge workout instead of their normal session. They log their result + shit talk. Second person gets the shit talk injected into their next normal workout (mid-session, between exercises — no warning). Whoever wins gets bragging rights + bonus Battle Mode points. Goal: inject some chaos and connection into weeks when they're not getting much time together.
+
+### C25K Integration (Cade)
+- 9 weeks × 3 sessions
+- Runs on gym days after lifting OR standalone
+- Week 1: 60s run / 90s walk × 8 rounds → progresses to continuous 30min run
+- Counts toward Battle Mode bonus pts
+
+---
+
+## BUDGET MODULE — RECEIPT SCANNING + GRADUAL FINANCIAL ONBOARDING
+
+### Core Philosophy
+Shame is the #1 barrier to financial health for ADHD brains. Never show the full picture until they're ready. Build trust month by month. One question at a time. No lectures. No judgment.
+
+### Receipt + Screenshot Scanning
+- Camera button on Budget home screen — tap to photograph receipt or screenshot
+- AI reads: merchant, total, line items, date
+- Auto-categorizes to envelope (groceries, fuel, entertainment, etc.)
+- Asks "Does this look right?" → one tap confirm or adjust
+- Over time learns user's common merchants → auto-confirms without asking
+- Bank statement screenshots: AI reads transactions, logs to appropriate envelopes
+- E-transfer confirmations: logs payment, updates committed bills tracker
+- No bank access ever — trust-based, receipt/screenshot only
+
+### Monthly Financial Check-in (Gradual Disclosure Model)
+- Short questionnaire, once a month, never the same questions twice
+- Rotates through categories so nothing feels like an interrogation
+- AI tracks what's been asked and answered, builds the picture slowly over time
+- User adds debt/expenses over multiple months — never forced to see the full picture at once
+
+**Question categories (rotated monthly, 2-3 questions max):**
+- Income: "Did your income change this month?"
+- Bills: "Any new recurring bills? Anything cancelled?"
+- Debt: "Any debt you want to add to track? (credit card, loan, etc.)" — optional, never required
+- Goals: "Anything you're saving toward right now?"
+- Wins: "Any financial win this month, even small?"
+- Stress: "How's money stress feeling this month? (just to calibrate)"
+
+**Key rules:**
+- Never ask about total debt directly in month 1
+- Never show a full debt summary until user has voluntarily added 3+ items over time
+- Each piece of info they add = more accurate envelope recommendations
+- AI notices patterns: "You've added 3 credit cards over the past 3 months — want to see a simple payoff plan?" (user's choice)
+- Snowball method suggested gently when enough debt is entered, never pushed
+
+### Auto-Squirrel + Transfer Instructions
+
+**The core behavior:**
+Tether tells you exactly when and where to move money. No decisions required. Just follow the instructions.
+
+**Payday sequence (every 2nd Friday):**
 1. Notification at midnight when pay lands: "Payday 💰 — here's what to move and when"
 2. Step-by-step transfer instructions, in order:
    - "Move $630 KOHO → Tangerine before 10am (truck payment hits at 10)"
@@ -2633,6 +2908,105 @@ ANDROID_HOME=~/Library/Android/sdk JAVA_HOME=/opt/homebrew/opt/openjdk@17 eas bu
 ANDROID_HOME=~/Library/Android/sdk JAVA_HOME=/opt/homebrew/opt/openjdk@17 eas build --platform android --profile preview --local
 ```
 User must have Google Health Connect installed on device (pre-installed Android 14+, Play Store for older).
+
+---
+
+## SESSION 33 — UI UPGRADE DESIGN SPEC
+*March 31, 2026*
+
+### The Core Idea
+The goal is to transition from 8 recolored themes to a fluid, behavioral system where the UI intensifies based on performance and each era feels earned.
+
+### Phase 1: The Default Starter Theme — "SHADOW"
+Before any theme unlocks, new users get SHADOW — a premium near-black with a single warm amber accent (#c8973a). Clean, capable, no allegiance yet.
+
+### Phase 2: Per-Module Behavioral Overlays
+Theme shifts intensity based on real-time metadata (HRV, streaks, spending).
+
+**Fitness Module States:**
+- **On a streak:** Accent color brightens 15%, card borders sharpen.
+- **PR mode:** HRV ≥ 60 + good sleep → Subtle gold shimmer on exercise cards.
+- **Recovery:** HRV < 30 or sleep < 5h → Desaturated, softer edges, gentler prompts.
+- **Beast Mode:** Full saturation push, heavier card weight, faster animations.
+
+**Budget Module States:**
+- **Breach (overspending):** Accent shifts cooler, subtle texture roughens on cards.
+- **Survival mode:** Strips to greyscale + single accent, decoration removed.
+
+**Workday Module States:**
+- **Locked In:** High contrast, sharp edges, accent fully saturated.
+- **Toast:** Muted palette, softer shadow, rounded edges increase.
+
+### Phase 3: Theme Unlock Animations (Per Era)
+- **RONIN:** Ink brush sweeps across screen, black ink bleeds into existing UI.
+- **VOID:** Screen static/corruption effect, then holographic blue assembles.
+- **VALKYRIE:** Lightning crack, quiet power settles.
+
+### Phase 4: Artwork & Visual Assets
+- **RONIN:** Ink wash mountain silhouette background (5% opacity).
+- **VOID:** Hex grid texture overlay (3% opacity).
+- **IRON:** Carbon fiber or brushed metal texture.
+
+### Phase 5: Typography Upgrades
+- **IRON:** Inter (Current)
+- **RONIN:** Noto Serif JP
+- **VALKYRIE:** Cinzel
+- **ARCANE:** IM Fell English
+- **VOID:** Share Tech Mono
+
+### Implementation Progress
+- ✅ **Phase 1 Complete:** SHADOW theme defined and set as system default.
+- ✅ **Module Labels:** SHADOW-specific naming (TRAINING / COMMAND) wired into App.tsx.
+
+---
+
+## SESSION 34 — RANK SYSTEM + SUCCESSFUL BUILD (Health Connect)
+*March 31, 2026*
+
+### Rank system (WarRoom.tsx + UserContext.tsx)
+
+**user_profiles** — added `rank` (integer) and `goal_unlocked` (boolean) fields to User type.
+
+**Auto-unlock logic (UserContext.tsx — syncHealthData)**
+- `syncHealthData` now accepts `currentProfile` as second arg
+- After health sync, queries `user_context_snapshots` for latest `consistency` object
+- If `consistency.isConsistent === true` AND `goal_unlocked` is false → fires `user_profiles` update: `{ goal_unlocked: true, macro_tier: 1 }` + calls `refreshUser()`
+- Silent fallthrough — never blocks auth or health sync if this fails
+
+**GOAL CARD (WarRoom.tsx)**
+- Shown only when `user.goal_unlocked === true`
+- Displays: CURRENT RANK label, rank name (`RECRUIT → SOLDIER → VETERAN → ELITE → COMMANDER → LEGENDARY`), numeric rank badge
+- Progress bar: `consistency.last30Days / 8 sessions` toward next rank
+- `loadConsistencyData()` queries `user_context_snapshots` (latest row) for `snapshot.consistency`
+- Dependency array on focus includes `user.goal_unlocked` and `user.rank`
+
+### Props table column fix (UserContext.tsx)
+Kill switch cascade delete was using `from_user_id` / `to_user_id` — columns don't exist. Fixed to `from_user` / `to_user`.
+
+### Build fix: app.json → app.config.js + expo-build-properties
+
+**Problem:** `react-native-health-connect` requires `minSdkVersion 26`. Setting `android.minSdkVersion: 26` in `app.config.js` does NOT work — it's visible in EAS config logs but does not flow through to Gradle.
+
+**⚠️ LESSON — CRITICAL FOR FUTURE BUILDS:**
+> `android.minSdkVersion` in `app.config.js` does NOT set the Gradle minSdk in Expo SDK 55.
+> The ONLY thing that works is the `expo-build-properties` plugin:
+> ```json
+> ["expo-build-properties", { "android": { "minSdkVersion": 26 } }]
+> ```
+> Add this to the `plugins` array in `app.config.js`. Without it, EAS will build with minSdk 24 regardless of what you set elsewhere.
+
+**Also fixed:** Migrated from `app.json` (static) to `app.config.js` (dynamic JS export). Eliminates dual-config ambiguity. Single source of truth going forward.
+
+### Build result
+```
+✅ BUILD SUCCESSFUL — 11m 27s
+APK: build-1774968251218.apk (77.4 MB)
+```
+
+### Build command
+```
+ANDROID_HOME=~/Library/Android/sdk JAVA_HOME=/opt/homebrew/opt/openjdk@17 eas build --platform android --profile preview --local
+```
 
 ---
 

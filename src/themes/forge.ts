@@ -17,3 +17,5 @@ export const FORGE = {
   mode:      'dark' as const,
   name:      'FORGE',
 };
+
+export default FORGE;

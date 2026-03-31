@@ -17,3 +17,5 @@ export const ARCANE = {
   mode:      'dark' as const,
   name:      'ARCANE',
 };
+
+export default ARCANE;

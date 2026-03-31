@@ -17,3 +17,5 @@ export const VERDANT = {
   mode:      'dark' as const,
   name:      'VERDANT',
 };
+
+export default VERDANT;

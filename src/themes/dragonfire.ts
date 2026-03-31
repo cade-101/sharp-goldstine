@@ -17,3 +17,5 @@ export const DRAGONFIRE = {
   mode:      'dark' as const,
   name:      'DRAGONFIRE',
 };
+
+export default DRAGONFIRE;
