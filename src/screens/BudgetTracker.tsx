@@ -146,16 +146,86 @@ export default function BudgetTracker() {
   useEffect(() => { loadData(); loadCommittedBills(); }, []);
 
   async function loadData() {
+    if (!user?.id) return;
     const startOfPeriod = new Date();
     startOfPeriod.setDate(startOfPeriod.getDate() - (14 - daysLeft));
 
     const { data } = await supabase
       .from('budget_expenses')
       .select('*')
+      .eq('user_id', user.id)
       .gte('created_at', startOfPeriod.toISOString())
       .order('created_at', { ascending: false });
 
     if (data) setExpenses(data);
+  }
+
+  async function deleteTransaction(id: string) {
+    await supabase.from('budget_expenses').delete().eq('id', id);
+    setExpenses(prev => prev.filter(e => e.id !== id));
+  }
+
+  function confirmDeleteTransaction(e: any) {
+    Alert.alert(
+      'Remove transaction?',
+      `${e.note || e.envelope_id} — $${parseFloat(e.amount).toFixed(2)}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => deleteTransaction(e.id) },
+      ],
+    );
+  }
+
+  function confirmClearAll() {
+    Alert.alert(
+      'Clear all transactions?',
+      'Removes all logged expenses this pay period. Envelopes reset to full. Cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear all', style: 'destructive', onPress: async () => {
+            if (!user?.id) return;
+            await supabase.from('budget_expenses').delete().eq('user_id', user.id);
+            setExpenses([]);
+          },
+        },
+      ],
+    );
+  }
+
+  function confirmClearOld() {
+    Alert.alert(
+      'Clear old transactions?',
+      'Remove all transactions older than 30 days.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear old', style: 'destructive', onPress: async () => {
+            if (!user?.id) return;
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            await supabase
+              .from('budget_expenses')
+              .delete()
+              .eq('user_id', user.id)
+              .lt('date', thirtyDaysAgo.toISOString().split('T')[0]);
+            loadData();
+          },
+        },
+      ],
+    );
+  }
+
+  function showClearOptions() {
+    Alert.alert(
+      'Clear transactions',
+      'Choose what to clear',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Clear older than 30 days', onPress: confirmClearOld },
+        { text: 'Clear ALL', style: 'destructive', onPress: confirmClearAll },
+      ],
+    );
   }
 
   async function loadCommittedBills() {
@@ -610,22 +680,38 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`
       <StatusBar barStyle={T.mode === 'light' ? 'dark-content' : 'light-content'} />
       <View style={s.histHeader}>
         <Text style={s.histTitle}>HISTORY</Text>
-        <TouchableOpacity onPress={() => setScreen('home')}><Text style={s.back}>← BACK</Text></TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+          <TouchableOpacity onPress={showClearOptions}>
+            <Text style={[s.back, { color: T.red }]}>CLEAR</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setScreen('home')}>
+            <Text style={s.back}>← BACK</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+      <Text style={{ color: T.muted, fontSize: 10, letterSpacing: 1, paddingHorizontal: 16, paddingBottom: 8 }}>
+        HOLD ROW TO DELETE
+      </Text>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         {expenses.length === 0 ? (
           <Text style={s.empty}>No expenses logged yet.</Text>
         ) : expenses.map((e, i) => {
           const env = envelopes.find(env => env.id === e.envelope_id);
           return (
-            <View key={i} style={s.histCard}>
+            <TouchableOpacity
+              key={e.id ?? i}
+              style={s.histCard}
+              onLongPress={() => confirmDeleteTransaction(e)}
+              delayLongPress={400}
+              activeOpacity={0.75}
+            >
               <View style={s.histTop}>
                 <Text style={s.histEnv}>{env?.name || e.envelope_id}</Text>
                 <Text style={[s.histAmount, { color: env?.color || T.text }]}>-${parseFloat(e.amount).toFixed(2)}</Text>
               </View>
               {e.note ? <Text style={s.histNote}>{e.note}</Text> : null}
               <Text style={s.histDate}>{e.date}</Text>
-            </View>
+            </TouchableOpacity>
           );
         })}
       </ScrollView>

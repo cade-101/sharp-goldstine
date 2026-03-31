@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Linking } from 'react-native';
+import { Linking, AppState } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import { resolveClarification, checkAndSendPendingClarifications } from './src/lib/downtimeDetector';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { ActivityIndicator, View, Text } from 'react-native';
@@ -28,6 +30,28 @@ function MainApp() {
   const { user, loading, themeTokens } = useUser();
   const [householdSkipped, setHouseholdSkipped] = useState(false);
   const [deepLinkHouse, setDeepLinkHouse] = useState<string | null>(null);
+
+  // Notification action responses (e.g. clarify transfer buttons)
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener(response => {
+      const { actionIdentifier, notification } = response;
+      const data = notification.request.content.data as { clarificationId?: string; type?: string };
+      if (data?.type === 'clarify_transfer' && data.clarificationId) {
+        resolveClarification(data.clarificationId, actionIdentifier);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Foreground downtime check — when app comes to foreground, check for pending clarifications
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active' && user?.id) {
+        checkAndSendPendingClarifications(user.id);
+      }
+    });
+    return () => sub.remove();
+  }, [user?.id]);
 
   useEffect(() => {
     // Check if app was opened via deep link

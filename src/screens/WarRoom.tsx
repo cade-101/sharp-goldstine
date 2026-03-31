@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   SafeAreaView, StatusBar, TextInput, ActivityIndicator, Alert,
+  Modal, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,15 +11,15 @@ import { useUser } from '../context/UserContext';
 import { supabase } from '../lib/supabase';
 import { sendPushNotification } from '../lib/sendPushNotification';
 import { logEvent } from '../lib/logEvent';
+import { callEdgeFunction } from '../lib/callEdgeFunction';
 
 const MISSIONS_KEY = 'warroom_missions';
 const MISSIONS_DATE_KEY = 'warroom_missions_date';
 import { GroceryNudgeCard } from '../components/GroceryNudgeCard';
 import Blitz from './Blitz';
 import ShoppingList from './ShoppingList';
+import Pantry from './Pantry';
 import * as Calendar from 'expo-calendar';
-
-const INTEL_EDGE_URL = 'https://rzutjhmaoagjdrjefvzh.supabase.co/functions/v1/intel-processor';
 
 // ── BRAIN STATE ───────────────────────────────────────────────────────────────
 const BRAIN_STATES = [
@@ -70,14 +71,26 @@ function dateString(): string {
   return now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase();
 }
 
+// ── INTEL TYPES ───────────────────────────────────────────────────────────────
+type IntelMode = 'photo' | 'screenshot' | 'voice' | 'text';
+type IntelQueueItem = {
+  id: string;
+  type: 'image' | 'text';
+  content: string;
+  mimeType?: string;
+  status: 'pending' | 'processing' | 'done' | 'failed';
+  summary?: string;
+};
+
 // ── COMPONENT ─────────────────────────────────────────────────────────────────
 export default function WarRoom() {
-  const { user, themeTokens: T } = useUser();
+  const { user, themeTokens: T, healthData } = useUser();
   const navigation = useNavigation<any>();
 
   const [now, setNow] = useState(timeString());
   const [brainState, setBrainState] = useState<BrainStateId | null>(null);
   const [savingBrain, setSavingBrain] = useState(false);
+  const [reconExpanded, setReconExpanded] = useState(false);
 
   // Incoming signals (unread props)
   const [signals, setSignals] = useState<Array<{ id: string; from_user: string; message: string; created_at: string }>>([]);
@@ -91,9 +104,17 @@ export default function WarRoom() {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
 
-  // Intel Drop
+  // Intel Overlay
+  const [showIntelOverlay, setShowIntelOverlay] = useState(false);
+  const [intelMode, setIntelMode] = useState<IntelMode>('photo');
+  const [intelTextInput, setIntelTextInput] = useState('');
+  const [intelQueue, setIntelQueue] = useState<IntelQueueItem[]>([]);
+  const [intelFiling, setIntelFiling] = useState(false);
+  const intelInputRef = useRef<TextInput>(null);
+
+  // Legacy single-result (kept for backward compat with existing result display)
   const [intelDropping, setIntelDropping] = useState(false);
-  const [intelResult, setIntelResult] = useState<{ itemsLogged: number; routedTo: string[]; store?: string } | null>(null);
+  const [intelResult, setIntelResult] = useState<{ itemsLogged: number; incomeLogged?: number; pantryLogged?: number; clarifications?: string[]; store?: string } | null>(null);
 
   // Blitz
   const [showBlitz, setShowBlitz] = useState(false);
@@ -101,6 +122,11 @@ export default function WarRoom() {
 
   // Supply Run
   const [showSupplyRun, setShowSupplyRun] = useState(false);
+  const [showPantry, setShowPantry] = useState(false);
+
+  // Water tracker
+  const [waterLog, setWaterLog] = useState<Array<{ id: string; amount_ml: number; container: string; drink_type: string; logged_at: string }>>([]);
+  const [showContainerPicker, setShowContainerPicker] = useState(false);
 
   // Calendar
   const [calEvents, setCalEvents] = useState<Array<{ id: string; title: string; startDate: string }>>([]);
@@ -123,16 +149,33 @@ export default function WarRoom() {
       const today = new Date().toISOString().split('T')[0];
       const savedDate = await AsyncStorage.getItem(MISSIONS_DATE_KEY);
       if (savedDate !== today) {
-        // New day — wipe missions
+        // New day — reset missions, pre-populate training mission if today is a training day
         await AsyncStorage.setItem(MISSIONS_DATE_KEY, today);
-        await AsyncStorage.setItem(MISSIONS_KEY, JSON.stringify(['', '', '']));
-        setMissions(['', '', '']);
+        const initial: string[] = ['', '', ''];
+        const trainingDays: number[] = (user as any)?.training_days ?? [];
+        const todayDow = new Date().getDay();
+        if (trainingDays.includes(todayDow)) {
+          const SPLIT_LABELS: Record<number, string[]> = {
+            1: ['FULL'], 2: ['FULL A', 'FULL B'], 3: ['LEGS', 'PUSH', 'PULL'],
+            4: ['LEGS', 'PUSH', 'PULL', 'FULL'], 5: ['PUSH', 'PULL', 'LEGS', 'FULL', 'CONDITIONING'],
+            6: ['PUSH', 'PULL', 'LEGS', 'PUSH', 'PULL', 'CONDITIONING'],
+            7: ['PUSH', 'PULL', 'LEGS', 'PUSH', 'PULL', 'LEGS', 'FULL'],
+          };
+          const sorted = [...trainingDays].sort((a, b) => a - b);
+          const idx = sorted.indexOf(todayDow);
+          const labels = SPLIT_LABELS[sorted.length] ?? ['FULL'];
+          const split = labels[idx] ?? 'FULL';
+          const theme = ((user as any)?.theme ?? 'tether').toUpperCase();
+          initial[0] = `${theme} — ${split} DAY 💪`;
+        }
+        await AsyncStorage.setItem(MISSIONS_KEY, JSON.stringify(initial));
+        setMissions(initial);
       } else {
         const raw = await AsyncStorage.getItem(MISSIONS_KEY);
         if (raw) setMissions(JSON.parse(raw));
       }
     })();
-  }, []);
+  }, [user?.id]);
 
   useFocusEffect(useCallback(() => {
     loadSignals();
@@ -235,59 +278,169 @@ export default function WarRoom() {
     return `${hour}:${m.toString().padStart(2, '0')}${ampm}`;
   }
 
-  async function handleIntelDrop() {
+  // ── INTEL OVERLAY HANDLERS ──────────────────────────────────────────────────
+  async function handlePickImage(fromCamera: boolean) {
     if (!user?.id) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo library access to use Intel Drop.');
+    const perm = fromCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission needed', `Allow ${fromCamera ? 'camera' : 'photo library'} access.`);
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-      base64: true,
-    });
-    if (result.canceled || !result.assets[0]) return;
+    const result = fromCamera
+      ? await ImagePicker.launchCameraAsync({ quality: 0.7, base64: true })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.7,
+          base64: true,
+        });
 
-    setIntelDropping(true);
-    setIntelResult(null);
+    if (result.canceled || !result.assets[0]?.base64) return;
 
+    const asset = result.assets[0];
+    const queueId = `img_${Date.now()}`;
+    const newItem: IntelQueueItem = {
+      id: queueId, type: 'image',
+      content: asset.base64!,
+      mimeType: asset.mimeType ?? 'image/jpeg',
+      status: 'processing',
+    };
+    setIntelQueue(q => [...q, newItem]);
+
+    // Process immediately
     try {
-      const asset = result.assets[0];
-      if (!asset.base64) throw new Error('Could not read image data');
+      const raw = await callEdgeFunction('intel-processor', {
+        type: 'image',
+        base64Image: asset.base64,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+        userId: user.id,
+        householdId: user.house_name,
+      });
+      const data = raw as {
+        itemsLogged?: number; incomeLogged?: number; pantryLogged?: number;
+        clarifications?: string[]; store?: string; duplicate?: boolean;
+      };
+      const parts = [];
+      if ((data.itemsLogged ?? 0) > 0) parts.push(`${data.itemsLogged} expenses`);
+      if ((data.incomeLogged ?? 0) > 0) parts.push(`${data.incomeLogged} income`);
+      if ((data.pantryLogged ?? 0) > 0) parts.push(`${data.pantryLogged} pantry items`);
+      if (data.duplicate) parts.push('already logged');
+      const summary = parts.length ? `✓ ${parts.join(' · ')}${data.store ? ` from ${data.store}` : ''}` : '✓ Filed';
+      setIntelQueue(q => q.map(i => i.id === queueId ? { ...i, status: 'done', summary } : i));
+      logEvent(user.id, 'intel_drop', { store: data.store, items_logged: data.itemsLogged });
+    } catch {
+      setIntelQueue(q => q.map(i => i.id === queueId ? { ...i, status: 'failed', summary: 'Failed — will retry' } : i));
+    }
+  }
 
-      // Call Edge Function directly with base64 — no Storage upload
-      const session = await supabase.auth.getSession();
-      const token = session.data.session?.access_token;
-      const resp = await fetch(INTEL_EDGE_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          base64Image: asset.base64,
-          mimeType: asset.mimeType ?? 'image/jpeg',
+  function addTextToQueue() {
+    const text = intelTextInput.trim();
+    if (!text) return;
+    const queueId = `txt_${Date.now()}`;
+    setIntelQueue(q => [...q, { id: queueId, type: 'text', content: text, status: 'pending' }]);
+    setIntelTextInput('');
+    intelInputRef.current?.clear();
+  }
+
+  async function handleFiledAndForgotten() {
+    if (!user?.id) return;
+    // Add any unsent text first
+    const remaining = intelTextInput.trim();
+    if (remaining) {
+      const queueId = `txt_${Date.now()}`;
+      setIntelQueue(q => [...q, { id: queueId, type: 'text', content: remaining, status: 'pending' }]);
+      setIntelTextInput('');
+    }
+
+    setIntelFiling(true);
+
+    // Process all pending text items
+    const pending = [...intelQueue, ...(remaining ? [{ id: `txt_${Date.now()}`, type: 'text' as const, content: remaining, status: 'pending' as const }] : [])]
+      .filter(i => i.type === 'text' && i.status === 'pending');
+
+    for (const item of pending) {
+      setIntelQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'processing' } : i));
+      try {
+        const raw = await callEdgeFunction('intel-processor', {
+          type: 'text',
+          text: item.content,
           userId: user.id,
           householdId: user.house_name,
-        }),
-      });
-
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error ?? 'Processing failed');
-
-      setIntelResult({
-        itemsLogged: data.itemsLogged,
-        routedTo: data.routedTo,
-        store: data.store,
-      });
-      logEvent(user.id, 'intel_drop', { store: data.store, items_logged: data.itemsLogged });
-    } catch (err) {
-      Alert.alert('Intel Drop failed', String(err));
-    } finally {
-      setIntelDropping(false);
+        });
+        const data = raw as {
+          itemsLogged?: number; incomeLogged?: number; pantryLogged?: number;
+          shoppingNeeds?: Array<{ name: string; category: string; quantity: number; unit: string }>;
+          clarifications?: string[];
+          calendarItems?: Array<{ title: string; date_hint: string; type: string }>;
+        };
+        const parts = [];
+        if ((data.itemsLogged ?? 0) > 0) parts.push(`${data.itemsLogged} expenses`);
+        if ((data.incomeLogged ?? 0) > 0) parts.push(`${data.incomeLogged} income`);
+        if ((data.pantryLogged ?? 0) > 0) parts.push(`${data.pantryLogged} pantry`);
+        if ((data.shoppingNeeds?.length ?? 0) > 0) parts.push(`${data.shoppingNeeds!.length} to shopping`);
+        if ((data.calendarItems?.length ?? 0) > 0) parts.push(`${data.calendarItems!.length} events noted`);
+        const summary = parts.length ? `✓ ${parts.join(' · ')}` : '✓ Filed';
+        setIntelQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'done', summary } : i));
+        logEvent(user.id, 'intel_text', { items: data.itemsLogged });
+      } catch {
+        setIntelQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'failed', summary: 'Failed' } : i));
+      }
     }
+
+    setIntelFiling(false);
+    // Close after brief delay so user sees the result
+    setTimeout(() => {
+      setShowIntelOverlay(false);
+      setIntelQueue([]);
+    }, 1500);
+  }
+
+  // ── WATER TRACKER ──────────────────────────────────────────────────────────
+  const CONTAINERS = {
+    bottle:   { label: 'Water bottle', emoji: '💧', ml: 500,  type: 'water' },
+    cup:      { label: 'Cup / glass',  emoji: '🥤', ml: 250,  type: 'water' },
+    tumbler:  { label: 'Tumbler',      emoji: '🫗', ml: 750,  type: 'water' },
+    biggulp:  { label: 'Big gulp',     emoji: '🪣', ml: 1000, type: 'water' },
+    pepsi:    { label: 'Pepsi / pop',  emoji: '🥤', ml: 355,  type: 'caffeine_sugar' },
+    coffee:   { label: 'Coffee',       emoji: '☕', ml: 250,  type: 'caffeine' },
+    alcohol:  { label: 'Drink',        emoji: '🍺', ml: 355,  type: 'alcohol' },
+    other:    { label: 'Other',        emoji: '💬', ml: 250,  type: 'other' },
+  } as const;
+  type ContainerKey = keyof typeof CONTAINERS;
+
+  const today = new Date().toISOString().split('T')[0];
+  const waterKey = `water_log_${user?.id}_${today}`;
+  const waterGoal = (user as any)?.water_goal_units ?? 8;
+  const defaultContainer: ContainerKey = ((user as any)?.default_water_container ?? 'bottle') as ContainerKey;
+
+  useEffect(() => {
+    AsyncStorage.getItem(waterKey).then(raw => {
+      if (raw) {
+        try { setWaterLog(JSON.parse(raw)); } catch {}
+      }
+    });
+  }, [waterKey]);
+
+  async function logWater(containerKey: ContainerKey) {
+    if (!user?.id) return;
+    const c = CONTAINERS[containerKey];
+    const entry = { id: `w_${Date.now()}`, amount_ml: c.ml, container: containerKey, drink_type: c.type, logged_at: new Date().toISOString() };
+    const newLog = [...waterLog, entry];
+    setWaterLog(newLog);
+    setShowContainerPicker(false);
+    await AsyncStorage.setItem(waterKey, JSON.stringify(newLog));
+    const totalMl = newLog.reduce((sum, e) => sum + e.amount_ml, 0);
+    await supabase.from('health_snapshots').upsert({ user_id: user.id, date: today, water_ml: totalMl }, { onConflict: 'user_id,date' });
+    logEvent(user.id, 'drink_logged', { drink_type: c.type, amount_ml: c.ml, container: containerKey });
+  }
+
+  async function undoLastWater() {
+    if (!waterLog.length) return;
+    const newLog = waterLog.slice(0, -1);
+    setWaterLog(newLog);
+    await AsyncStorage.setItem(waterKey, JSON.stringify(newLog));
   }
 
   async function selectBrainState(state: BrainStateId) {
@@ -344,35 +497,20 @@ export default function WarRoom() {
           )}
         </View>
 
-        {/* ── INTEL DROP ──────────────────────────────────────────────────────── */}
+        {/* ── INTEL ───────────────────────────────────────────────────────────── */}
         <View style={s.section}>
           <TouchableOpacity
             style={s.intelBtn}
-            onPress={handleIntelDrop}
-            disabled={intelDropping}
+            onPress={() => { setShowIntelOverlay(true); setIntelQueue([]); }}
             activeOpacity={0.8}
           >
-            {intelDropping ? (
-              <ActivityIndicator color={T.bg} size="small" />
-            ) : (
-              <Text style={s.intelIcon}>📸</Text>
-            )}
-            <View>
-              <Text style={s.intelLabel}>INTEL DROP</Text>
-              <Text style={s.intelSub}>
-                {intelDropping ? 'Analyzing receipt...' : 'Receipt or cart screenshot → auto-sorted'}
-              </Text>
+            <Text style={s.intelIcon}>⚡</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={s.intelLabel}>INTEL</Text>
+              <Text style={s.intelSub}>Photo · Screenshot · Voice · Type — File it all</Text>
             </View>
+            <Text style={s.intelArrow}>›</Text>
           </TouchableOpacity>
-          {intelResult && (
-            <View style={s.intelResult}>
-              <Text style={s.intelResultText}>
-                ✓ {intelResult.itemsLogged} items logged
-                {intelResult.store ? ` from ${intelResult.store}` : ''}
-                {' → '}{intelResult.routedTo.join(', ')}
-              </Text>
-            </View>
-          )}
         </View>
 
         {/* ── GROCERY NUDGES ───────────────────────────────────────────────────── */}
@@ -415,6 +553,64 @@ export default function WarRoom() {
             })}
           </View>
         </View>
+
+        {/* ── HYDRATION ────────────────────────────────────────────────────────── */}
+        {(() => {
+          const filled = Math.min(waterLog.filter(e => e.drink_type === 'water').length, waterGoal);
+          const totalMl = waterLog.reduce((s, e) => s + e.amount_ml, 0);
+          const goalMl = waterGoal * CONTAINERS[defaultContainer].ml;
+          const goalHit = filled >= waterGoal;
+          const GOAL_MESSAGES: Record<string, string> = {
+            iron: 'HYDRATION SECURED.', ronin: 'Discipline maintained.', valkyrie: 'Hydrated. Ready.',
+            forge: 'Systems running hot — fuel maintained.', arcane: 'The well is full.',
+            dragonfire: 'Fire fed. Keep going.', void: 'Fluid dynamics nominal.',
+            verdant: 'Roots watered.', form: 'Your body thanks you.',
+          };
+          return (
+            <View style={s.section}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={s.sectionLabel}>HYDRATION</Text>
+                {waterLog.length > 0 && (
+                  <TouchableOpacity onPress={undoLastWater}>
+                    <Text style={{ color: T.muted, fontSize: 10, letterSpacing: 1 }}>UNDO</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <View style={[s.waterCard, { backgroundColor: T.card, borderColor: goalHit ? T.accent : T.border }]}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, flex: 1 }}>
+                  {Array.from({ length: waterGoal }).map((_, i) => (
+                    <Text key={i} style={{ fontSize: 18 }}>
+                      {i < filled ? (goalHit ? '💧' : '💧') : '○'}
+                    </Text>
+                  ))}
+                </View>
+                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                  <Text style={{ color: goalHit ? T.accent : T.text, fontWeight: '700', fontSize: 16 }}>{filled} / {waterGoal}</Text>
+                  <Text style={{ color: T.muted, fontSize: 10 }}>{(totalMl / 1000).toFixed(1)}L</Text>
+                </View>
+              </View>
+              {goalHit && (
+                <Text style={{ color: T.accent, fontSize: 11, fontWeight: '700', letterSpacing: 1, marginTop: 6, textAlign: 'center' }}>
+                  {GOAL_MESSAGES[user?.theme ?? 'iron'] ?? GOAL_MESSAGES.iron}
+                </Text>
+              )}
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                <TouchableOpacity
+                  style={[s.waterBtn, { backgroundColor: T.accent, flex: 1 }]}
+                  onPress={() => logWater(defaultContainer)}
+                >
+                  <Text style={{ color: T.bg, fontWeight: '700', fontSize: 13 }}>+ {CONTAINERS[defaultContainer].emoji}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.waterBtn, { borderColor: T.border, borderWidth: 1, paddingHorizontal: 16 }]}
+                  onPress={() => setShowContainerPicker(true)}
+                >
+                  <Text style={{ color: T.muted, fontSize: 12 }}>▼</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })()}
 
         {/* ── TODAY'S MISSIONS ─────────────────────────────────────────────────── */}
         <View style={s.section}>
@@ -516,6 +712,98 @@ export default function WarRoom() {
           )}
         </View>
 
+        {/* ── RECON ──────────────────────────────────────────────────────── */}
+        {healthData && (
+          <View style={s.section}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setReconExpanded(e => !e)}
+            >
+              <View style={[s.reconStrip, { borderColor: T.border, backgroundColor: T.card }]}>
+                <View style={s.reconHeader}>
+                  <Text style={[s.sectionLabel, { marginBottom: 0 }]}>RECON</Text>
+                  <Text style={[s.reconSubLabel, { color: T.muted }]}>last night  {reconExpanded ? '▲' : '▼'}</Text>
+                </View>
+                <View style={s.reconRow}>
+                  {healthData.sleep?.hours != null && (
+                    <View style={s.reconStat}>
+                      <Text style={s.reconEmoji}>💤</Text>
+                      <Text style={[s.reconVal, { color: healthData.sleep.hours < 5 ? '#ef4444' : T.text }]}>
+                        {healthData.sleep.hours}h
+                      </Text>
+                    </View>
+                  )}
+                  {healthData.restingHR != null && (
+                    <View style={s.reconStat}>
+                      <Text style={s.reconEmoji}>❤️</Text>
+                      <Text style={[s.reconVal, { color: T.text }]}>{healthData.restingHR}bpm</Text>
+                    </View>
+                  )}
+                  {healthData.hrv != null && (
+                    <View style={s.reconStat}>
+                      <Text style={s.reconEmoji}>📊</Text>
+                      <Text style={[s.reconVal, {
+                        color: healthData.hrv > 50 ? '#22c55e'
+                          : healthData.hrv > 30 ? '#eab308'
+                          : '#ef4444',
+                      }]}>{Math.round(healthData.hrv)}ms</Text>
+                    </View>
+                  )}
+                  {(healthData.steps ?? 0) > 0 && (
+                    <View style={s.reconStat}>
+                      <Text style={s.reconEmoji}>👟</Text>
+                      <Text style={[s.reconVal, { color: T.muted }]}>
+                        {(healthData.steps ?? 0).toLocaleString()}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </TouchableOpacity>
+
+            {reconExpanded && (
+              <View style={[s.reconDetail, { borderColor: T.border, backgroundColor: T.card }]}>
+                {healthData.hrv != null && (
+                  <View style={s.reconDetailRow}>
+                    <Text style={[s.reconDetailLabel, { color: T.muted }]}>HRV STATUS</Text>
+                    <Text style={[s.reconDetailVal, {
+                      color: healthData.hrv > 50 ? '#22c55e'
+                        : healthData.hrv > 30 ? '#eab308'
+                        : '#ef4444',
+                    }]}>
+                      {healthData.hrv > 50 ? 'RECOVERED — green light' :
+                       healthData.hrv > 30 ? 'MODERATE — steady effort' :
+                       'FATIGUED — back off today'}
+                    </Text>
+                  </View>
+                )}
+                {healthData.sleep?.hours != null && healthData.sleep.hours < 5 && (
+                  <View style={s.reconDetailRow}>
+                    <Text style={[s.reconDetailLabel, { color: T.muted }]}>SLEEP FLAG</Text>
+                    <Text style={[s.reconDetailVal, { color: '#ef4444' }]}>
+                      Low sleep — intensity auto-adjusted
+                    </Text>
+                  </View>
+                )}
+                {healthData.avgHR != null && (
+                  <View style={s.reconDetailRow}>
+                    <Text style={[s.reconDetailLabel, { color: T.muted }]}>AVG HR TODAY</Text>
+                    <Text style={[s.reconDetailVal, { color: T.text }]}>{healthData.avgHR} bpm</Text>
+                  </View>
+                )}
+                {(healthData.steps ?? 0) > 0 && (
+                  <View style={s.reconDetailRow}>
+                    <Text style={[s.reconDetailLabel, { color: T.muted }]}>STEPS TODAY</Text>
+                    <Text style={[s.reconDetailVal, { color: T.text }]}>
+                      {(healthData.steps ?? 0).toLocaleString()}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
         {/* ── BLITZ ──────────────────────────────────────────────────────── */}
         <View style={s.section}>
           <TouchableOpacity
@@ -536,15 +824,16 @@ export default function WarRoom() {
           <Text style={s.sectionLabel}>QUICK ACCESS</Text>
           <View style={s.quickRow}>
             {[
-              { label: 'WORK', icon: '⏱', screen: 'Workday' },
-              { label: 'FIT', icon: '💪', screen: 'Fitness' },
-              { label: 'ARMORY', icon: '💰', screen: 'Budget' },
-              { label: 'OPS', icon: '⚙️', screen: 'Settings' },
+              { label: 'WORK', icon: '⏱', screen: 'Workday' as const, overlay: null },
+              { label: 'FIT', icon: '💪', screen: 'Fitness' as const, overlay: null },
+              { label: 'PANTRY', icon: '🥫', screen: null, overlay: 'pantry' as const },
+              { label: 'ARMORY', icon: '💰', screen: 'Budget' as const, overlay: null },
+              { label: 'OPS', icon: '⚙️', screen: 'Settings' as const, overlay: null },
             ].map(q => (
               <TouchableOpacity
-                key={q.screen}
+                key={q.label}
                 style={s.quickBtn}
-                onPress={() => navigation.navigate(q.screen)}
+                onPress={() => q.overlay === 'pantry' ? setShowPantry(true) : navigation.navigate(q.screen!)}
                 activeOpacity={0.75}
               >
                 <Text style={s.quickIcon}>{q.icon}</Text>
@@ -572,12 +861,227 @@ export default function WarRoom() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
+      {/* ── CONTAINER PICKER ─────────────────────────────────────────────────── */}
+      <Modal visible={showContainerPicker} transparent animationType="slide" onRequestClose={() => setShowContainerPicker(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }}>
+          <View style={{ backgroundColor: T.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 40 }}>
+            <Text style={{ color: T.accent, fontSize: 11, fontWeight: '700', letterSpacing: 3, marginBottom: 16 }}>WHAT ARE YOU DRINKING?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+              {(['bottle', 'cup', 'tumbler', 'biggulp'] as const).map(k => (
+                <TouchableOpacity key={k} style={{ width: '47%', flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: T.border, backgroundColor: T.bg }} onPress={() => logWater(k)}>
+                  <Text style={{ fontSize: 22 }}>{CONTAINERS[k].emoji}</Text>
+                  <View>
+                    <Text style={{ color: T.text, fontWeight: '600', fontSize: 13 }}>{CONTAINERS[k].label}</Text>
+                    <Text style={{ color: T.muted, fontSize: 10 }}>{CONTAINERS[k].ml}ml</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={{ height: 1, backgroundColor: T.border, marginBottom: 12 }} />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              {(['pepsi', 'coffee', 'alcohol', 'other'] as const).map(k => (
+                <TouchableOpacity key={k} style={{ width: '47%', flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: T.border, backgroundColor: T.bg }} onPress={() => logWater(k)}>
+                  <Text style={{ fontSize: 22 }}>{CONTAINERS[k].emoji}</Text>
+                  <View>
+                    <Text style={{ color: T.text, fontWeight: '600', fontSize: 13 }}>{CONTAINERS[k].label}</Text>
+                    <Text style={{ color: T.muted, fontSize: 10 }}>{CONTAINERS[k].ml}ml</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity onPress={() => setShowContainerPicker(false)} style={{ alignItems: 'center', marginTop: 16, padding: 12 }}>
+              <Text style={{ color: T.muted, fontSize: 12 }}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {showBlitz && (
         <Blitz onClose={() => setShowBlitz(false)} />
       )}
       {showSupplyRun && (
         <ShoppingList onClose={() => setShowSupplyRun(false)} />
       )}
+      {showPantry && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }}>
+          <TouchableOpacity
+            style={{ position: 'absolute', top: 16, right: 20, zIndex: 101, padding: 10 }}
+            onPress={() => setShowPantry(false)}
+          >
+            <Text style={{ color: T.muted, fontSize: 20 }}>✕</Text>
+          </TouchableOpacity>
+          <Pantry />
+        </View>
+      )}
+
+      {/* ── INTEL OVERLAY ──────────────────────────────────────────────────── */}
+      <Modal
+        visible={showIntelOverlay}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowIntelOverlay(false)}
+      >
+        <KeyboardAvoidingView
+          style={[s.intelOverlay, { backgroundColor: T.bg }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <SafeAreaView style={{ flex: 1 }}>
+            {/* Header */}
+            <View style={s.intelOvHeader}>
+              <Text style={s.intelOvTitle}>INTEL</Text>
+              <TouchableOpacity onPress={() => setShowIntelOverlay(false)} style={s.intelOvClose}>
+                <Text style={s.intelOvCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Mode selector */}
+            <View style={s.intelModeRow}>
+              {([
+                { key: 'photo', icon: '📷', label: 'PHOTO' },
+                { key: 'screenshot', icon: '🖼️', label: 'SCREEN' },
+                { key: 'voice', icon: '🎤', label: 'VOICE' },
+                { key: 'text', icon: '⌨️', label: 'TYPE' },
+              ] as const).map(m => (
+                <TouchableOpacity
+                  key={m.key}
+                  style={[s.intelModeBtn, intelMode === m.key && s.intelModeBtnActive]}
+                  onPress={() => setIntelMode(m.key)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={s.intelModeIcon}>{m.icon}</Text>
+                  <Text style={[s.intelModeLabel, intelMode === m.key && s.intelModeLabelActive]}>
+                    {m.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={s.intelOvContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Mode-specific action */}
+              {(intelMode === 'photo' || intelMode === 'screenshot') && (
+                <View style={s.intelImageBtns}>
+                  <TouchableOpacity
+                    style={s.intelImageBtn}
+                    onPress={() => handlePickImage(intelMode === 'photo')}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={s.intelImageBtnIcon}>{intelMode === 'photo' ? '📷' : '🖼️'}</Text>
+                    <Text style={s.intelImageBtnLabel}>
+                      {intelMode === 'photo' ? 'TAKE PHOTO' : 'PICK FROM GALLERY'}
+                    </Text>
+                    <Text style={s.intelImageBtnSub}>
+                      {intelMode === 'photo'
+                        ? 'Grocery bags, receipts, product labels'
+                        : 'Bank screenshots, order confirmations'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.intelImageBtn, s.intelImageBtnAlt]}
+                    onPress={() => handlePickImage(false)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={s.intelImageBtnIcon}>📁</Text>
+                    <Text style={s.intelImageBtnLabel}>GALLERY</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {(intelMode === 'voice' || intelMode === 'text') && (
+                <View style={s.intelTextSection}>
+                  <Text style={s.intelTextHint}>
+                    {intelMode === 'voice'
+                      ? 'Tap the mic on your keyboard and speak. Or just type it.'
+                      : 'Brain dump anything — groceries, expenses, reminders, tasks.'}
+                  </Text>
+                  <TextInput
+                    ref={intelInputRef}
+                    style={s.intelTextInput}
+                    value={intelTextInput}
+                    onChangeText={setIntelTextInput}
+                    placeholder={intelMode === 'voice'
+                      ? 'We need milk, I spent $40 at the mall, dentist Thursday...'
+                      : 'Groceries, receipts, appointments, anything...'}
+                    placeholderTextColor={T.muted}
+                    multiline
+                    autoFocus={intelMode === 'text'}
+                    textAlignVertical="top"
+                    autoCapitalize="sentences"
+                  />
+                  <TouchableOpacity
+                    style={[s.intelAddBtn, !intelTextInput.trim() && s.intelAddBtnDisabled]}
+                    onPress={addTextToQueue}
+                    disabled={!intelTextInput.trim()}
+                  >
+                    <Text style={s.intelAddBtnText}>+ ADD TO QUEUE</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Queue */}
+              {intelQueue.length > 0 && (
+                <View style={s.intelQueueSection}>
+                  <Text style={s.intelQueueTitle}>QUEUED ({intelQueue.length})</Text>
+                  {intelQueue.map(item => (
+                    <View key={item.id} style={s.intelQueueItem}>
+                      <Text style={s.intelQueueItemIcon}>
+                        {item.type === 'image' ? '📸' : '📝'}
+                      </Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.intelQueueItemContent} numberOfLines={2}>
+                          {item.type === 'image' ? 'Photo/screenshot' : item.content}
+                        </Text>
+                        {item.summary && (
+                          <Text style={[s.intelQueueItemStatus, {
+                            color: item.status === 'done' ? '#22c55e'
+                              : item.status === 'failed' ? '#ef4444' : T.muted,
+                          }]}>
+                            {item.summary}
+                          </Text>
+                        )}
+                      </View>
+                      <View style={s.intelQueueStatusDot}>
+                        {item.status === 'processing' ? (
+                          <ActivityIndicator size="small" color={T.accent} />
+                        ) : (
+                          <Text style={{ fontSize: 14 }}>
+                            {item.status === 'done' ? '✓' : item.status === 'failed' ? '✗' : '○'}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+
+            {/* FILED AND FORGOTTEN */}
+            <View style={s.intelFooter}>
+              <TouchableOpacity
+                style={[
+                  s.intelFiledBtn,
+                  (intelFiling || (intelQueue.length === 0 && !intelTextInput.trim())) && s.intelFiledBtnDisabled,
+                ]}
+                onPress={handleFiledAndForgotten}
+                disabled={intelFiling || (intelQueue.length === 0 && !intelTextInput.trim())}
+                activeOpacity={0.85}
+              >
+                {intelFiling ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Text style={s.intelFiledBtnText}>
+                    {intelQueue.every(i => i.status === 'done' || i.status === 'failed')
+                      ? '✓ CLOSE' : 'FILED AND FORGOTTEN'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -814,6 +1318,19 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       fontWeight: '700',
       letterSpacing: 1,
     },
+    // RECON
+    reconStrip:      { borderWidth: 1, borderRadius: 12, padding: 14 },
+    reconHeader:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    reconSubLabel:   { fontSize: 9, letterSpacing: 1 },
+    reconRow:        { flexDirection: 'row', gap: 16 },
+    reconStat:       { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    reconEmoji:      { fontSize: 13 },
+    reconVal:        { fontSize: 13, fontWeight: '700' },
+    reconDetail:     { borderWidth: 1, borderRadius: 12, padding: 14, marginTop: 6, gap: 10 },
+    reconDetailRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    reconDetailLabel:{ fontSize: 9, fontWeight: '700', letterSpacing: 2 },
+    reconDetailVal:  { fontSize: 12, fontWeight: '700' },
+
     // Field Reset
     fieldResetBtn: {
       flexDirection: 'row',
@@ -871,42 +1388,102 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       color: T.muted,
       letterSpacing: 1.5,
     },
-    // Intel Drop
+    // Water tracker
+    waterCard: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      borderWidth: 1, borderRadius: 12, padding: 14,
+    },
+    waterBtn: {
+      borderRadius: 10, paddingVertical: 10, alignItems: 'center', justifyContent: 'center',
+    },
+
+    // Intel button (compact)
     intelBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 14,
-      backgroundColor: T.card,
-      borderWidth: 2,
-      borderColor: T.accent,
-      borderRadius: 14,
-      paddingVertical: 16,
-      paddingHorizontal: 20,
+      flexDirection: 'row', alignItems: 'center', gap: 14,
+      backgroundColor: T.card, borderWidth: 2, borderColor: T.accent,
+      borderRadius: 14, paddingVertical: 16, paddingHorizontal: 20,
     },
-    intelIcon: {
-      fontSize: 28,
+    intelIcon: { fontSize: 28 },
+    intelLabel: { fontSize: 14, fontWeight: '900', color: T.accent, letterSpacing: 2 },
+    intelSub: { fontSize: 11, color: T.muted, marginTop: 2 },
+    intelArrow: { fontSize: 22, color: T.accent, fontWeight: '300' },
+
+    // Intel Overlay
+    intelOverlay: { flex: 1 },
+    intelOvHeader: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12,
+      borderBottomWidth: 1, borderBottomColor: T.border,
     },
-    intelLabel: {
-      fontSize: 14,
-      fontWeight: '900',
-      color: T.accent,
-      letterSpacing: 2,
+    intelOvTitle: { fontSize: 22, fontWeight: '900', color: T.accent, letterSpacing: 3 },
+    intelOvClose: { padding: 8 },
+    intelOvCloseText: { fontSize: 20, color: T.muted },
+    intelOvContent: { padding: 20, gap: 20 },
+
+    intelModeRow: {
+      flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12,
+      gap: 8, borderBottomWidth: 1, borderBottomColor: T.border,
     },
-    intelSub: {
-      fontSize: 11,
-      color: T.muted,
-      marginTop: 2,
+    intelModeBtn: {
+      flex: 1, alignItems: 'center', paddingVertical: 12,
+      backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 10,
     },
-    intelResult: {
-      marginTop: 10,
-      backgroundColor: T.accentBg,
-      borderRadius: 8,
-      padding: 12,
+    intelModeBtnActive: { borderColor: T.accent, backgroundColor: T.accentBg },
+    intelModeIcon: { fontSize: 20, marginBottom: 4 },
+    intelModeLabel: { fontSize: 9, fontWeight: '800', color: T.muted, letterSpacing: 1 },
+    intelModeLabelActive: { color: T.accent },
+
+    intelImageBtns: { gap: 10 },
+    intelImageBtn: {
+      backgroundColor: T.card, borderWidth: 1, borderColor: T.accent,
+      borderRadius: 14, padding: 20, alignItems: 'center', gap: 8,
     },
-    intelResultText: {
-      fontSize: 12,
-      color: T.accent,
-      fontWeight: '600',
+    intelImageBtnAlt: { borderColor: T.border },
+    intelImageBtnIcon: { fontSize: 36 },
+    intelImageBtnLabel: { fontSize: 13, fontWeight: '900', color: T.accent, letterSpacing: 2 },
+    intelImageBtnSub: { fontSize: 11, color: T.muted, textAlign: 'center' },
+
+    intelTextSection: { gap: 12 },
+    intelTextHint: { fontSize: 12, color: T.muted, lineHeight: 18 },
+    intelTextInput: {
+      backgroundColor: T.card, borderWidth: 1, borderColor: T.border,
+      borderRadius: 12, padding: 16, color: T.text, fontSize: 15,
+      minHeight: 120, textAlignVertical: 'top',
+    },
+    intelAddBtn: {
+      backgroundColor: T.accent, borderRadius: 10,
+      paddingVertical: 12, alignItems: 'center',
+    },
+    intelAddBtnDisabled: { opacity: 0.35 },
+    intelAddBtnText: { fontSize: 12, fontWeight: '900', color: '#000', letterSpacing: 2 },
+
+    intelQueueSection: {
+      backgroundColor: T.card, borderWidth: 1, borderColor: T.border,
+      borderRadius: 12, overflow: 'hidden',
+    },
+    intelQueueTitle: {
+      fontSize: 10, fontWeight: '800', color: T.muted, letterSpacing: 2,
+      padding: 12, borderBottomWidth: 1, borderBottomColor: T.border,
+    },
+    intelQueueItem: {
+      flexDirection: 'row', alignItems: 'flex-start', padding: 12, gap: 10,
+      borderBottomWidth: 1, borderBottomColor: T.border,
+    },
+    intelQueueItemIcon: { fontSize: 18, marginTop: 2 },
+    intelQueueItemContent: { fontSize: 13, color: T.text, lineHeight: 18 },
+    intelQueueItemStatus: { fontSize: 11, marginTop: 4 },
+    intelQueueStatusDot: { width: 24, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+
+    intelFooter: {
+      padding: 16, borderTopWidth: 1, borderTopColor: T.border,
+    },
+    intelFiledBtn: {
+      backgroundColor: T.accent, borderRadius: 14,
+      paddingVertical: 18, alignItems: 'center',
+    },
+    intelFiledBtnDisabled: { opacity: 0.3 },
+    intelFiledBtnText: {
+      fontSize: 15, fontWeight: '900', color: '#000', letterSpacing: 3,
     },
   });
 }

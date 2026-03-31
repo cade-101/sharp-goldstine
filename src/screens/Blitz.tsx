@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
   StatusBar, ActivityIndicator, ScrollView, Animated,
-  AppState, AppStateStatus, Vibration, Linking,
+  AppState, AppStateStatus, Vibration, Linking, Alert,
 } from 'react-native';
+import * as Calendar from 'expo-calendar';
 import * as Notifications from 'expo-notifications';
 import { Audio } from 'expo-av';
 import { useUser } from '../context/UserContext';
@@ -317,7 +318,49 @@ Rules:
       minutes: Math.round(totalElapsed / 60),
       areas: areasSecured,
     });
+
+    // After 3 total BLITZ sessions, suggest adding a weekly calendar block
+    const { count } = await supabase
+      .from('field_reset_sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id);
+    if (count === 3) {
+      Alert.alert(
+        'Add BLITZ to your calendar?',
+        "You've done 3 sessions. Want to block 10 minutes every day for it?",
+        [
+          { text: 'Not yet', style: 'cancel' },
+          { text: 'Yes — add it', onPress: addBlitzToCalendar },
+        ],
+      );
+    }
+
     onClose();
+  }
+
+  async function addBlitzToCalendar() {
+    try {
+      const { status } = await Calendar.requestCalendarPermissionsAsync();
+      if (status !== 'granted') return;
+      const cals = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+      const target = cals.find(c => c.allowsModifications) ?? cals[0];
+      if (!target) return;
+      const today = new Date();
+      for (let d = 0; d < 28; d++) {
+        const eventDate = new Date(today);
+        eventDate.setDate(today.getDate() + d);
+        eventDate.setHours(7, 30, 0, 0);
+        await Calendar.createEventAsync(target.id, {
+          title: 'BLITZ — Field Reset',
+          startDate: eventDate,
+          endDate: new Date(eventDate.getTime() + 10 * 60 * 1000),
+          notes: 'Scheduled by Tether',
+          alarms: [{ relativeOffset: -5 }],
+        });
+      }
+    } catch (e) {
+      console.log('[calendar] addBlitzToCalendar failed:', e);
+    }
   }
 
   // ── SPOTIFY BAR ──────────────────────────────────────────────────────────────

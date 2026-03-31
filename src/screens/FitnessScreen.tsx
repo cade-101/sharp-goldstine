@@ -4,8 +4,11 @@ import {
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert,
   ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
+import * as Calendar from 'expo-calendar';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase';
 import { useUser } from '../context/UserContext';
 import EffortSelector from '../components/EffortSelector';
@@ -26,13 +29,13 @@ import {
   SpotifyTrack,
 } from '../lib/spotifyService';
 import { SPOTIFY_CLIENT_ID as SPOT_ID } from '../lib/config';
+import { callEdgeFunction } from '../lib/callEdgeFunction';
 
 WebBrowser.maybeCompleteAuthSession();
 
 import { ThemeTokens } from '../themes';
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────────
-const EDGE_URL = 'https://rzutjhmaoagjdrjefvzh.supabase.co/functions/v1/fitness-engine';
 const SPOTIFY_REDIRECT_URI = AuthSession.makeRedirectUri({ scheme: 'tether', path: 'spotify' });
 
 const MODES = [
@@ -55,6 +58,32 @@ const SPLIT_LABELS: Record<number, string[]> = {
   7: ['PUSH', 'PULL', 'LEGS', 'PUSH', 'PULL', 'LEGS', 'FULL'],
 };
 const DAY_SHORT = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+const DAY_MON_FIRST = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+
+const SPLIT_MUSCLES: Record<string, string> = {
+  'PUSH': 'Chest · Shoulders · Triceps',
+  'PULL': 'Back · Biceps · Rear Delts',
+  'LEGS': 'Quads · Glutes · Hamstrings',
+  'FULL': 'Full Body',
+  'FULL A': 'Upper Body',
+  'FULL B': 'Lower Body',
+  'CONDITIONING': 'Cardio · Core',
+};
+
+const SPLIT_MAIN_LIFTS: Record<string, string[]> = {
+  'PUSH': ['Bench Press', 'Shoulder Press', 'Tricep Work'],
+  'PULL': ['Deadlift', 'Barbell Row', 'Lat Pulldown'],
+  'LEGS': ['Squat', 'RDL', 'Leg Press'],
+  'FULL': ['Squat', 'Bench Press', 'Row'],
+  'FULL A': ['Bench Press', 'Row', 'Shoulder Press'],
+  'FULL B': ['Squat', 'RDL', 'Leg Press'],
+  'CONDITIONING': ['Cardio', 'Core Work'],
+};
+
+const SPLIT_ABBREV: Record<string, string> = {
+  'PUSH': 'P', 'PULL': 'PL', 'LEGS': 'L',
+  'FULL': 'F', 'FULL A': 'FA', 'FULL B': 'FB', 'CONDITIONING': 'C',
+};
 
 // ── HELPERS ────────────────────────────────────────────────────────────────────
 function formatTime(sec: number) {
@@ -83,17 +112,21 @@ function getSplitLabel(dayNum: number, trainingDays: number[]): string | null {
 }
 
 function callEngine(body: object): Promise<unknown> {
-  return fetch(EDGE_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }).then(r => { if (!r.ok) throw new Error(`Engine ${r.status}`); return r.json(); });
+  return callEdgeFunction('fitness-engine', body);
 }
 
 // ── TYPES ──────────────────────────────────────────────────────────────────────
 type Screen = 'home' | 'loading' | 'workout' | 'complete' | 'history' | 'beast' | 'quick' | 'joint_ops' | 'props_inbox' | 'spotify_search';
 
 interface SetEntry { weight: string; reps: string; }
+
+interface WeeklyBrief {
+  weekTheme: string;
+  dayBriefs: Record<string, { focus: string; mainLifts: string[]; note?: string }>;
+  monthPhase: string;
+  weeklyTarget: string;
+  generatedAt?: string;
+}
 
 interface PREntry {
   id: string;
@@ -107,7 +140,7 @@ interface PREntry {
 
 // ── COMPONENT ──────────────────────────────────────────────────────────────────
 export default function FitnessScreen() {
-  const { user, themeTokens: C } = useUser();
+  const { user, themeTokens: C, healthData } = useUser();
   const isForm = C.mode === 'light';
   const s = makeStyles(C);
 
@@ -116,6 +149,9 @@ export default function FitnessScreen() {
 
   // Session config
   const [hardStopMinutes, setHardStopMinutes] = useState(75);
+  const [hardStopMode, setHardStopMode] = useState<'duration' | 'time'>('duration');
+  const [leaveByTime, setLeaveByTime] = useState<Date | null>(null);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [sessionMode, setSessionMode] = useState<'plan' | 'lfg'>('plan');
 
   // Session state
@@ -159,8 +195,23 @@ export default function FitnessScreen() {
   const [celebVisible, setCelebVisible] = useState(false);
   const [celebPR, setCelebPR] = useState<{ exercise: string; weight: number; reps: number } | null>(null);
 
+  // MED EVAC
+  const [medEvacCount, setMedEvacCount] = useState<Record<string, number>>({});
+
+  // Calendar / weekly brief
+  const [calendarTab, setCalendarTab] = useState<'week' | 'month'>('week');
+  const [weekExpanded, setWeekExpanded] = useState(false);
+  const [weeklyBrief, setWeeklyBrief] = useState<WeeklyBrief | null>(null);
+  const [monthSessions, setMonthSessions] = useState<Record<string, string>>({}); // date → label
+
   // Theme animations
   const [showInkWash, setShowInkWash] = useState(false);
+
+  // Cardio log
+  const [showCardioModal, setShowCardioModal] = useState(false);
+  const [cardioType, setCardioType] = useState('Elliptical');
+  const [cardioDuration, setCardioDuration] = useState('');
+  const [cardioLogging, setCardioLogging] = useState(false);
 
   // Spotify — local token state so refreshes don't require UserContext reload
   const [spotifyToken, setSpotifyToken] = useState<string | null>(user?.spotify_access_token ?? null);
@@ -224,7 +275,7 @@ export default function FitnessScreen() {
   }, [authResponse]);
 
   async function loadAll() {
-    await Promise.all([loadHistory(), loadPartner(), loadUnseenProps()]);
+    await Promise.all([loadHistory(), loadPartner(), loadUnseenProps(), loadMonthSessions(), loadWeeklyBrief()]);
   }
 
   async function loadHistory() {
@@ -291,6 +342,62 @@ export default function FitnessScreen() {
         reps: r.reps,
         createdAt: r.created_at,
       })));
+    }
+  }
+
+  async function loadMonthSessions() {
+    if (!user) return;
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    const { data } = await supabase
+      .from('workout_sessions')
+      .select('date, label')
+      .eq('user_id', user.id)
+      .gte('date', monthStart)
+      .order('date');
+    if (data) {
+      const map: Record<string, string> = {};
+      data.forEach((s: any) => { if (s.date) map[s.date] = s.label ?? ''; });
+      setMonthSessions(map);
+    }
+  }
+
+  async function loadWeeklyBrief() {
+    if (!user) return;
+    const cacheKey = `weekly_brief_${user.id}`;
+    try {
+      const cached = await AsyncStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed: WeeklyBrief = JSON.parse(cached);
+        const age = Date.now() - new Date(parsed.generatedAt ?? 0).getTime();
+        if (age < 7 * 24 * 60 * 60 * 1000) {
+          setWeeklyBrief(parsed);
+          return;
+        }
+      }
+    } catch {}
+
+    try {
+      const today = new Date();
+      const dow = today.getDay();
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - ((dow + 6) % 7));
+      const weekStartDate = monday.toISOString().split('T')[0];
+
+      const brief = await callEngine({
+        event: 'weekly_brief',
+        userId: user.id,
+        payload: {
+          trainingDays: user.training_days ?? [],
+          weekStartDate,
+        },
+      }) as WeeklyBrief;
+
+      brief.generatedAt = new Date().toISOString();
+      setWeeklyBrief(brief);
+      await AsyncStorage.setItem(cacheKey, JSON.stringify(brief));
+    } catch (e) {
+      console.log('[weekly brief] failed:', e);
     }
   }
 
@@ -378,6 +485,80 @@ export default function FitnessScreen() {
     } catch { Alert.alert('Error', 'Could not sync'); }
   }
 
+  // ── HARD STOP HELPERS ──────────────────────────────────────────────────────
+  function getHardStopDate(): Date {
+    if (hardStopMode === 'time' && leaveByTime) {
+      return new Date(leaveByTime.getTime() - 5 * 60 * 1000); // 5 min buffer
+    }
+    return new Date(Date.now() + hardStopMinutes * 60_000);
+  }
+
+  function getEffectiveMinutes(): number {
+    if (hardStopMode === 'time' && leaveByTime) {
+      return Math.max(15, Math.round((leaveByTime.getTime() - 5 * 60 * 1000 - Date.now()) / 60_000));
+    }
+    return hardStopMinutes;
+  }
+
+  // ── CALENDAR ──────────────────────────────────────────────────────────────
+  async function addWorkoutToCalendar(workoutLabel: string, startTime: Date, durationMinutes: number) {
+    try {
+      const { status } = await Calendar.requestCalendarPermissionsAsync();
+      if (status !== 'granted') return;
+      const cals = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+      const target = cals.find(c => c.allowsModifications) ?? cals[0];
+      if (!target) return;
+      const theme = (user?.theme ?? 'tether').toUpperCase();
+      await Calendar.createEventAsync(target.id, {
+        title: `${theme} — ${workoutLabel}`,
+        startDate: startTime,
+        endDate: new Date(startTime.getTime() + durationMinutes * 60 * 1000),
+        notes: 'Logged via Tether',
+        alarms: [],
+      });
+    } catch (e) {
+      console.log('[calendar] addWorkoutToCalendar failed:', e);
+    }
+  }
+
+  async function scheduleMonthCalendar() {
+    if (!user?.training_days?.length) return;
+    const alreadyDone = await AsyncStorage.getItem(`cal_scheduled_${user.id}`);
+    if (alreadyDone) return;
+    try {
+      const { status } = await Calendar.requestCalendarPermissionsAsync();
+      if (status !== 'granted') return;
+      const cals = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+      const target = cals.find(c => c.allowsModifications);
+      if (!target) return;
+      const theme = (user.theme ?? 'tether').toUpperCase();
+      const sorted = [...user.training_days].sort((a, b) => a - b);
+      const splitLabels = SPLIT_LABELS[sorted.length] ?? ['FULL'];
+      const today = new Date();
+      for (let week = 0; week < 4; week++) {
+        for (let i = 0; i < sorted.length; i++) {
+          const dayNum = sorted[i];
+          const split = splitLabels[i] ?? 'FULL';
+          const daysUntil = (dayNum - today.getDay() + 7) % 7;
+          const eventDate = new Date(today);
+          eventDate.setDate(today.getDate() + daysUntil + week * 7);
+          eventDate.setHours(7, 0, 0, 0);
+          if (eventDate <= today && week === 0) continue; // skip past days this week
+          await Calendar.createEventAsync(target.id, {
+            title: `${theme} — ${split} DAY`,
+            startDate: eventDate,
+            endDate: new Date(eventDate.getTime() + 75 * 60 * 1000),
+            notes: 'Scheduled by Tether',
+            alarms: [{ relativeOffset: -15 }],
+          });
+        }
+      }
+      await AsyncStorage.setItem(`cal_scheduled_${user.id}`, new Date().toISOString());
+    } catch (e) {
+      console.log('[calendar] scheduleMonthCalendar failed:', e);
+    }
+  }
+
   // ── SESSION CONTROL ────────────────────────────────────────────────────────
   async function startSession() {
     if (!user) return;
@@ -396,21 +577,30 @@ export default function FitnessScreen() {
         userId: user.id,
         payload: {
           mode: sessionMode,
-          hardStopMinutes,
+          hardStopMinutes: getEffectiveMinutes(),
           equipment: user.equipment ?? 'full_gym',
           injuries: [],
           moodContext: 'unknown',
-          sleepContext: 'unknown',
+          sleepContext: healthData?.sleep?.hours != null
+            ? (healthData.sleep.hours < 5 ? 'poor' : healthData.sleep.hours < 7 ? 'moderate' : 'good')
+            : 'unknown',
+          healthContext: {
+            sleepHours: healthData?.sleep?.hours ?? null,
+            hrv: healthData?.hrv ?? null,
+            restingHR: healthData?.restingHR ?? null,
+            steps: healthData?.steps ?? null,
+          },
         },
       }) as { sessionId: string; plan: SessionPlan };
 
       setSessionId(result.sessionId);
       setPlan(result.plan);
-      hardStopTimeRef.current = new Date(Date.now() + hardStopMinutes * 60_000);
+      hardStopTimeRef.current = getHardStopDate();
       setElapsed(0);
       clearInterval(sessionTimerRef.current!);
       sessionTimerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
       if (user?.theme === 'ronin') setShowInkWash(true);
+      addWorkoutToCalendar(result.plan?.label ?? 'WORKOUT', new Date(), getEffectiveMinutes());
       setScreen('workout');
     } catch {
       Alert.alert('Could not start session', 'Check your connection and try again.');
@@ -477,7 +667,7 @@ export default function FitnessScreen() {
         setExerciseIndex(next);
         setCurrentSetIndex(0);
       } else {
-        setCurrentSetIndex(currentSetIndex + 1);
+        setCurrentSetIndex(prev => prev + 1);
       }
       setSetEntry({ weight: '', reps: '' });
       setEffort(null);
@@ -511,6 +701,80 @@ export default function FitnessScreen() {
       setExerciseIndex(next);
       setCurrentSetIndex(0);
     }
+  }
+
+  async function logCardio() {
+    if (!user) return;
+    const durationMinutes = parseInt(cardioDuration) || 0;
+    if (!durationMinutes) return;
+    setCardioLogging(true);
+    try {
+      const exerciseName = `Cardio — ${cardioType}`;
+      // Check existing PR (longest session)
+      const { data: existing } = await supabase
+        .from('exercise_performance')
+        .select('reps')
+        .eq('user_id', user.id)
+        .eq('exercise_name', exerciseName)
+        .order('reps', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const isPR = !existing || durationMinutes > (existing.reps ?? 0);
+      await supabase.from('exercise_performance').insert({
+        user_id: user.id,
+        exercise_name: exerciseName,
+        weight: 0,
+        reps: durationMinutes,
+        effort: 3,
+        is_pr: isPR,
+      });
+      setShowCardioModal(false);
+      setCardioDuration('');
+      Alert.alert(isPR ? '🏆 NEW PR!' : 'LOGGED', `${cardioType} · ${durationMinutes} min${isPR ? '\nPersonal best!' : ''}`);
+    } catch {
+      Alert.alert('Error', 'Could not log cardio. Try again.');
+    } finally {
+      setCardioLogging(false);
+    }
+  }
+
+  async function medEvac() {
+    if (!plan || !user) return;
+    const ex = plan.exercises[exerciseIndex];
+    const count = (medEvacCount[ex.name] ?? 0) + 1;
+
+    let msg = 'Flag this area as injured? It will be removed from today and future sessions until cleared (1 week).';
+    if (count === 2) msg = 'Flagged again. Recommending you see a doctor. Cleared in 2 weeks.';
+
+    Alert.alert('🚑 MED EVAC', msg, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Confirm', style: 'destructive', onPress: async () => {
+        setMedEvacCount(prev => ({ ...prev, [ex.name]: count }));
+        const clearDays = count >= 2 ? 14 : 7;
+        const clearDate = new Date();
+        clearDate.setDate(clearDate.getDate() + clearDays);
+        try {
+          await supabase.from('injury_flags').insert({
+            user_id: user.id,
+            exercise_name: ex.name,
+            body_part: ex.name,
+            severity: count >= 2 ? 'severe' : 'moderate',
+            active: true,
+            date: new Date().toISOString().split('T')[0],
+          });
+        } catch { /* best effort */ }
+        if (count >= 2) {
+          Alert.alert('See a doctor', 'This area has been flagged twice. Please get it checked out.');
+        }
+        // Skip to next exercise
+        const next = exerciseIndex + 1;
+        if (next >= plan.exercises.length) { finishSession(); return; }
+        setExerciseIndex(next);
+        setCurrentSetIndex(0);
+        setSetEntry({ weight: '', reps: '' });
+        setEffort(null);
+      }},
+    ]);
   }
 
   async function finishSession() {
@@ -618,17 +882,46 @@ export default function FitnessScreen() {
           <View style={s.hardStopRow}>
             <Text style={s.hardStopLabel}>HARD STOP</Text>
             <View style={s.hardStopChips}>
-              {[45, 60, 75, 90].map(m => (
-                <TouchableOpacity
-                  key={m}
-                  style={[s.stopChip, hardStopMinutes === m && { backgroundColor: C.accent, borderColor: C.accent }]}
-                  onPress={() => setHardStopMinutes(m)}
-                >
-                  <Text style={[s.stopChipText, hardStopMinutes === m && { color: C.bg }]}>{m}m</Text>
-                </TouchableOpacity>
-              ))}
+              {[45, 60, 75, 90].map(m => {
+                const active = hardStopMode === 'duration' && hardStopMinutes === m;
+                return (
+                  <TouchableOpacity
+                    key={m}
+                    style={[s.stopChip, active && { backgroundColor: C.accent, borderColor: C.accent }]}
+                    onPress={() => { setHardStopMinutes(m); setHardStopMode('duration'); setLeaveByTime(null); }}
+                  >
+                    <Text style={[s.stopChipText, active && { color: C.bg }]}>{m}m</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
+            <TouchableOpacity
+              style={[s.leaveByBtn, hardStopMode === 'time' && { borderColor: C.accent }]}
+              onPress={() => setShowTimePicker(true)}
+            >
+              <Text style={[s.leaveByLabel, { color: C.muted }]}>LEAVE BY</Text>
+              <Text style={[s.leaveByTime, { color: hardStopMode === 'time' ? C.accent : C.text }]}>
+                {leaveByTime
+                  ? leaveByTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                  : '—'}
+              </Text>
+            </TouchableOpacity>
           </View>
+
+          {showTimePicker && (
+            <DateTimePicker
+              mode="time"
+              value={leaveByTime ?? new Date()}
+              display="spinner"
+              onChange={(_, selected) => {
+                setShowTimePicker(false);
+                if (selected) {
+                  setLeaveByTime(selected);
+                  setHardStopMode('time');
+                }
+              }}
+            />
+          )}
 
           {/* Mode grid */}
           <View style={s.modeGrid}>
@@ -659,36 +952,233 @@ export default function FitnessScreen() {
                 </TouchableOpacity>
               );
             })}
+            <TouchableOpacity
+              style={[s.modeCard, s.modeCardFull, { borderColor: C.border }]}
+              onPress={() => setShowCardioModal(true)}
+            >
+              <Text style={s.modeIcon}>🏃</Text>
+              <Text style={[s.modeLabel, { color: C.accent }]}>LOG CARDIO</Text>
+              <Text style={s.modeSub}>Elliptical, run, bike — log duration + track PRs.</Text>
+            </TouchableOpacity>
           </View>
 
-          {/* This Week (shown when in PLAN context or always) */}
-          {trainingDays.length > 0 && (
-            <View style={s.section}>
-              <Text style={s.sectionLabel}>THIS WEEK</Text>
-              <View style={s.weekStrip}>
-                {weekDays.map((d, i) => {
-                  const dayNum = d.getDay();
-                  const split = getSplitLabel(dayNum, trainingDays);
-                  const isToday = d.getTime() === today.getTime();
-                  const isPast = d.getTime() < today.getTime();
-                  return (
-                    <View key={i} style={[s.weekDay, isToday && { borderColor: C.accent }]}>
-                      <Text style={[s.weekDayName, isPast && { color: C.muted }, isToday && { color: C.accent }]}>
-                        {DAY_SHORT[dayNum]}
+          {/* ── CALENDAR SECTION ──────────────────────────────────────────── */}
+          {trainingDays.length > 0 && (() => {
+            // Month grid helper
+            const now2 = new Date();
+            const firstOfMonth = new Date(now2.getFullYear(), now2.getMonth(), 1);
+            const lastOfMonth  = new Date(now2.getFullYear(), now2.getMonth() + 1, 0);
+            const startOffset  = (firstOfMonth.getDay() + 6) % 7; // Mon=0
+            const gridStart    = new Date(firstOfMonth);
+            gridStart.setDate(firstOfMonth.getDate() - startOffset);
+            const monthGrid: Date[][] = [];
+            const cur = new Date(gridStart);
+            while (cur <= lastOfMonth || monthGrid.length < 4) {
+              const week: Date[] = [];
+              for (let i = 0; i < 7; i++) { week.push(new Date(cur)); cur.setDate(cur.getDate() + 1); }
+              monthGrid.push(week);
+              if (cur > lastOfMonth && monthGrid.length >= 4) break;
+            }
+
+            return (
+              <View style={s.section}>
+                {/* Tab bar */}
+                <View style={s.calTabRow}>
+                  {(['week', 'month'] as const).map(tab => (
+                    <TouchableOpacity key={tab} style={[s.calTab, calendarTab === tab && { borderBottomColor: C.accent }]} onPress={() => setCalendarTab(tab)}>
+                      <Text style={[s.calTabText, { color: calendarTab === tab ? C.accent : C.muted }]}>
+                        {tab === 'week' ? 'THIS WEEK' : 'THIS MONTH'}
                       </Text>
-                      {split ? (
-                        <Text style={[s.weekDayLabel, isPast && { color: C.muted }, isToday && { color: C.accent }]}>
-                          {split}
-                        </Text>
-                      ) : (
-                        <Text style={[s.weekDayRest, { color: C.muted }]}>REST</Text>
-                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* ── WEEK TAB ──────────────────────────────────────────────── */}
+                {calendarTab === 'week' && (
+                  <View>
+                    {/* Compact strip — tappable to expand */}
+                    <TouchableOpacity activeOpacity={0.8} onPress={() => setWeekExpanded(e => !e)}>
+                      <View style={s.weekStrip}>
+                        {weekDays.map((d, i) => {
+                          const dayNum = d.getDay();
+                          const split  = getSplitLabel(dayNum, trainingDays);
+                          const isToday = d.getTime() === today.getTime();
+                          const isPast  = d.getTime() < today.getTime();
+                          const dateStr = d.toISOString().split('T')[0];
+                          const done    = !!monthSessions[dateStr];
+                          return (
+                            <View key={i} style={[s.weekDay,
+                              isToday && { borderColor: C.accent },
+                              done && { backgroundColor: C.accent + '22' },
+                            ]}>
+                              <Text style={[s.weekDayName, isPast && !done && { color: C.muted }, isToday && { color: C.accent }]}>
+                                {DAY_SHORT[dayNum]}
+                              </Text>
+                              {done ? (
+                                <Text style={{ fontSize: 10, color: C.accent }}>✓</Text>
+                              ) : split ? (
+                                <Text style={[s.weekDayLabel, isPast && { color: C.muted }, isToday && { color: C.accent }]}>{split.slice(0,2)}</Text>
+                              ) : (
+                                <Text style={[s.weekDayRest, { color: C.muted }]}>—</Text>
+                              )}
+                            </View>
+                          );
+                        })}
+                        <View style={s.expandArrow}>
+                          <Text style={{ color: C.muted, fontSize: 10 }}>{weekExpanded ? '▲' : '▼'}</Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Expanded day cards */}
+                    {weekExpanded && (
+                      <View style={{ marginTop: 10, gap: 8 }}>
+                        {weeklyBrief?.weekTheme ? (
+                          <Text style={[s.briefTheme, { color: C.accent }]}>{weeklyBrief.weekTheme}</Text>
+                        ) : null}
+                        {weekDays.map((d, i) => {
+                          const dayNum  = d.getDay();
+                          const split   = getSplitLabel(dayNum, trainingDays);
+                          const isToday = d.getTime() === today.getTime();
+                          const isPast  = d.getTime() < today.getTime();
+                          const dateStr = d.toISOString().split('T')[0];
+                          const done    = !!monthSessions[dateStr];
+                          const brief   = weeklyBrief?.dayBriefs?.[String(dayNum)];
+                          const muscles = split ? SPLIT_MUSCLES[split] : null;
+                          const lifts   = brief?.mainLifts ?? (split ? SPLIT_MAIN_LIFTS[split] : null);
+
+                          if (!split) {
+                            // Rest day — compact row
+                            return (
+                              <View key={i} style={[s.dayCardRest, { borderColor: C.border }]}>
+                                <Text style={[s.dayCardDayName, { color: C.muted }]}>{DAY_SHORT[dayNum]}</Text>
+                                <Text style={[s.dayCardRestLabel, { color: C.muted }]}>REST</Text>
+                              </View>
+                            );
+                          }
+
+                          return (
+                            <View key={i} style={[s.dayCard,
+                              { borderColor: isToday ? C.accent : C.border, backgroundColor: C.card },
+                              done && { borderColor: C.green ?? C.accent },
+                            ]}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <View>
+                                  <Text style={[s.dayCardDayName, { color: isToday ? C.accent : (isPast && !done ? C.muted : C.text) }]}>
+                                    {DAY_MON_FIRST[(i + 0) % 7]} {done ? '✓' : ''}
+                                  </Text>
+                                  <Text style={[s.dayCardSplit, { color: isToday ? C.accent : C.text }]}>{split} DAY</Text>
+                                  {muscles && <Text style={[s.dayCardMuscles, { color: C.muted }]}>{muscles}</Text>}
+                                </View>
+                                {isToday && <View style={[s.todayPip, { backgroundColor: C.accent }]} />}
+                              </View>
+                              {lifts && (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
+                                  {lifts.map((l: string) => (
+                                    <View key={l} style={[s.liftChip, { borderColor: C.border }]}>
+                                      <Text style={[s.liftChipText, { color: C.text }]}>{l}</Text>
+                                    </View>
+                                  ))}
+                                </View>
+                              )}
+                              {brief?.focus && (
+                                <Text style={[s.dayCardFocus, { color: C.muted }]} numberOfLines={2}>{brief.focus}</Text>
+                              )}
+                              {brief?.note && (
+                                <Text style={[s.dayCardNote, { color: C.accent }]}>{brief.note}</Text>
+                              )}
+                            </View>
+                          );
+                        })}
+                        {weeklyBrief?.weeklyTarget && (
+                          <Text style={[s.weeklyTarget, { color: C.muted }]}>TARGET: {weeklyBrief.weeklyTarget}</Text>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* ── MONTH TAB ─────────────────────────────────────────────── */}
+                {calendarTab === 'month' && (
+                  <View>
+                    {/* Day header row */}
+                    <View style={s.monthDayHeaders}>
+                      {DAY_MON_FIRST.map(d => (
+                        <Text key={d} style={[s.monthDayHeader, { color: C.muted }]}>{d.slice(0,1)}</Text>
+                      ))}
                     </View>
-                  );
-                })}
+
+                    {/* Calendar grid */}
+                    {monthGrid.map((week, wi) => (
+                      <View key={wi} style={s.monthRow}>
+                        {week.map((d, di) => {
+                          const dayNum  = d.getDay();
+                          const split   = getSplitLabel(dayNum, trainingDays);
+                          const abbrev  = split ? (SPLIT_ABBREV[split] ?? split.slice(0,1)) : null;
+                          const isToday = d.toDateString() === today.toDateString();
+                          const dateStr = d.toISOString().split('T')[0];
+                          const done    = !!monthSessions[dateStr];
+                          const inMonth = d.getMonth() === now2.getMonth();
+                          const isFuture = d > today;
+
+                          return (
+                            <View key={di} style={s.monthCell}>
+                              <Text style={[s.monthCellDate, {
+                                color: isToday ? C.accent : inMonth ? C.text : C.muted,
+                                fontWeight: isToday ? '700' : '400',
+                              }]}>{d.getDate()}</Text>
+                              {split && inMonth && (
+                                <View style={[s.monthDot,
+                                  done && { backgroundColor: C.accent },
+                                  !done && !isFuture && { backgroundColor: C.muted },
+                                  isFuture && !done && { borderWidth: 1, borderColor: C.accent },
+                                ]}>
+                                  {abbrev && <Text style={[s.monthDotText, { color: done ? C.bg : (isFuture ? C.accent : C.bg) }]}>{abbrev}</Text>}
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ))}
+
+                    {/* Month stats */}
+                    {(() => {
+                      const daysInMonth = lastOfMonth.getDate();
+                      let planned = 0;
+                      for (let d2 = 1; d2 <= daysInMonth; d2++) {
+                        const dt = new Date(now2.getFullYear(), now2.getMonth(), d2);
+                        if (trainingDays.includes(dt.getDay())) planned++;
+                      }
+                      const completed2 = Object.keys(monthSessions).filter(ds => ds.startsWith(`${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}`)).length;
+                      const monthPRs  = recentPRs.filter(p => new Date(p.createdAt).getMonth() === now2.getMonth()).length;
+
+                      return (
+                        <View style={[s.monthStats, { borderColor: C.border }]}>
+                          <View style={s.monthStatRow}>
+                            <Text style={[s.monthStatLabel, { color: C.muted }]}>SESSIONS</Text>
+                            <Text style={[s.monthStatVal, { color: C.text }]}>{completed2} / {planned}</Text>
+                          </View>
+                          {monthPRs > 0 && (
+                            <View style={s.monthStatRow}>
+                              <Text style={[s.monthStatLabel, { color: C.muted }]}>PRs THIS MONTH</Text>
+                              <Text style={[s.monthStatVal, { color: C.accent }]}>{monthPRs} 🏆</Text>
+                            </View>
+                          )}
+                          {weeklyBrief?.monthPhase && (
+                            <View style={s.monthStatRow}>
+                              <Text style={[s.monthStatLabel, { color: C.muted }]}>PHASE</Text>
+                              <Text style={[s.monthStatVal, { color: C.text, fontSize: 13 }]}>{weeklyBrief.monthPhase}</Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })()}
+                  </View>
+                )}
               </View>
-            </View>
-          )}
+            );
+          })()}
 
           {/* Recent PRs */}
           {recentPRs.length > 0 && (
@@ -784,6 +1274,19 @@ export default function FitnessScreen() {
             prReps={propsTarget.reps}
           />
         )}
+
+        {/* Cardio Log Modal */}
+        <CardioModal
+          visible={showCardioModal}
+          cardioType={cardioType}
+          cardioDuration={cardioDuration}
+          loading={cardioLogging}
+          C={C}
+          onTypeChange={setCardioType}
+          onDurationChange={setCardioDuration}
+          onLog={logCardio}
+          onClose={() => { setShowCardioModal(false); setCardioDuration(''); }}
+        />
       </SafeAreaView>
     );
   }
@@ -903,7 +1406,7 @@ export default function FitnessScreen() {
           <View style={[s.progressFill, { width: `${progress * 100}%`, backgroundColor: C.accent }]} />
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 16 }} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={{ padding: 16 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {adjustments.length > 0 && (
             <View style={[s.adjustCard, { borderColor: C.accentDim }]}>
               {adjustments.map((a, i) => (
@@ -930,7 +1433,7 @@ export default function FitnessScreen() {
                 <Text style={[s.exName, { color: C.text }]}>{ex?.name}</Text>
                 <Text style={[s.exMeta, { color: C.muted }]}>
                   {ex?.sets} sets · {ex?.targetReps} reps
-                  {ex?.targetWeight ? ` · ${ex.targetWeight}kg suggested` : ''}
+                  {ex?.targetWeight ? ` · ${ex.targetWeight}${user?.weight_unit ?? 'lbs'} suggested` : ''}
                 </Text>
                 {ex?.note ? <Text style={[s.exNote, { color: C.muted }]}>{ex.note}</Text> : null}
               </View>
@@ -948,10 +1451,10 @@ export default function FitnessScreen() {
 
             <View style={s.inputRow}>
               <View style={s.inputWrap}>
-                <Text style={[s.inputLabel, { color: C.muted }]}>WEIGHT</Text>
+                <Text style={[s.inputLabel, { color: C.muted }]}>WEIGHT ({(user?.weight_unit ?? 'lbs').toUpperCase()})</Text>
                 <TextInput
                   style={[s.input, { backgroundColor: C.dark, borderColor: C.border, color: C.text }]}
-                  placeholder={ex?.targetWeight ? String(ex.targetWeight) : 'kg'}
+                  placeholder={ex?.targetWeight ? String(ex.targetWeight) : '0'}
                   placeholderTextColor={C.muted}
                   keyboardType="decimal-pad"
                   value={setEntry.weight}
@@ -987,6 +1490,13 @@ export default function FitnessScreen() {
                     {isForm ? 'Log set →' : 'LOG SET →'}
                   </Text>
               }
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{ marginTop: 10, alignItems: 'center', paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: '#7a1c1c' }}
+              onPress={medEvac}
+            >
+              <Text style={{ color: '#e03c3c', fontSize: 12, fontWeight: '700', letterSpacing: 2 }}>🚑 MED EVAC</Text>
             </TouchableOpacity>
           </View>
 
@@ -1109,6 +1619,13 @@ export default function FitnessScreen() {
         )}
 
         <TouchableOpacity
+          style={[s.startBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, marginTop: 12 }]}
+          onPress={() => setShowCardioModal(true)}
+        >
+          <Text style={[s.startBtnText, { color: C.muted, fontSize: 14 }]}>🏃 LOG CARDIO</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           style={[s.startBtn, { backgroundColor: C.accent, marginTop: 12 }]}
           onPress={() => { setScreen('home'); loadHistory(); }}
         >
@@ -1125,6 +1642,18 @@ export default function FitnessScreen() {
             toUser={propsTarget.toUser}
           />
         )}
+
+        <CardioModal
+          visible={showCardioModal}
+          cardioType={cardioType}
+          cardioDuration={cardioDuration}
+          loading={cardioLogging}
+          C={C}
+          onTypeChange={setCardioType}
+          onDurationChange={setCardioDuration}
+          onLog={logCardio}
+          onClose={() => { setShowCardioModal(false); setCardioDuration(''); }}
+        />
       </SafeAreaView>
     );
   }
@@ -1161,6 +1690,70 @@ export default function FitnessScreen() {
   );
 }
 
+// ── CARDIO MODAL ──────────────────────────────────────────────────────────────
+const CARDIO_TYPES = ['Elliptical', 'Run', 'Bike', 'Row', 'Swim', 'Walk', 'Stairmaster', 'Jump Rope'];
+
+function CardioModal({ visible, cardioType, cardioDuration, loading, C, onTypeChange, onDurationChange, onLog, onClose }: {
+  visible: boolean;
+  cardioType: string;
+  cardioDuration: string;
+  loading: boolean;
+  C: ThemeTokens;
+  onTypeChange: (t: string) => void;
+  onDurationChange: (d: string) => void;
+  onLog: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.7)' }}>
+        <View style={{ backgroundColor: C.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 40 }}>
+          <Text style={{ color: C.accent, fontSize: 12, fontWeight: '700', letterSpacing: 3, marginBottom: 16 }}>LOG CARDIO</Text>
+
+          <Text style={{ color: C.muted, fontSize: 10, letterSpacing: 2, marginBottom: 8 }}>TYPE</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {CARDIO_TYPES.map(t => (
+                <TouchableOpacity
+                  key={t}
+                  style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: cardioType === t ? C.accent : C.border, backgroundColor: cardioType === t ? C.accentBg : C.dark }}
+                  onPress={() => onTypeChange(t)}
+                >
+                  <Text style={{ color: cardioType === t ? C.accent : C.muted, fontWeight: '600', fontSize: 12 }}>{t}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          <Text style={{ color: C.muted, fontSize: 10, letterSpacing: 2, marginBottom: 8 }}>DURATION (MINUTES)</Text>
+          <TextInput
+            style={{ backgroundColor: C.dark, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 14, color: C.text, fontSize: 24, fontWeight: '700', textAlign: 'center', marginBottom: 20 }}
+            placeholder="0"
+            placeholderTextColor={C.muted}
+            keyboardType="numeric"
+            value={cardioDuration}
+            onChangeText={onDurationChange}
+          />
+
+          <TouchableOpacity
+            style={{ backgroundColor: cardioDuration ? C.accent : C.dark, borderRadius: 12, padding: 16, alignItems: 'center', marginBottom: 12 }}
+            onPress={onLog}
+            disabled={!cardioDuration || loading}
+          >
+            {loading
+              ? <ActivityIndicator color={C.bg} />
+              : <Text style={{ color: cardioDuration ? C.bg : C.muted, fontWeight: '700', fontSize: 14, letterSpacing: 2 }}>LOG IT →</Text>
+            }
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onClose} style={{ alignItems: 'center', padding: 12 }}>
+            <Text style={{ color: C.muted, fontSize: 12 }}>CANCEL</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // ── STYLES ────────────────────────────────────────────────────────────────────
 function makeStyles(C: ThemeTokens) {
   return StyleSheet.create({
@@ -1178,11 +1771,14 @@ function makeStyles(C: ThemeTokens) {
     propsBadge:    { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8 },
     propsBadgeText:{ fontSize: 13, fontWeight: '700' },
 
-    hardStopRow:   { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border, gap: 12 },
+    hardStopRow:   { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border, gap: 8 },
     hardStopLabel: { fontSize: 10, color: C.muted, letterSpacing: 2, width: 70 },
-    hardStopChips: { flexDirection: 'row', gap: 8, flex: 1 },
+    hardStopChips: { flexDirection: 'row', gap: 6, flex: 1 },
     stopChip:      { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.dark, alignItems: 'center' },
     stopChipText:  { fontSize: 12, color: C.muted, fontWeight: '600' },
+    leaveByBtn:    { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, alignItems: 'center', backgroundColor: C.dark },
+    leaveByLabel:  { fontSize: 8, letterSpacing: 1, fontWeight: '700' },
+    leaveByTime:   { fontSize: 13, fontWeight: '700', marginTop: 2 },
 
     modeGrid:      { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 10 },
     modeCard:      { width: '47%', backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 16, gap: 4 },
@@ -1195,11 +1791,47 @@ function makeStyles(C: ThemeTokens) {
     // Week + PR sections
     section:       { marginHorizontal: 16, marginBottom: 16 },
     sectionLabel:  { fontSize: 10, color: C.muted, letterSpacing: 3, marginBottom: 10 },
-    weekStrip:     { flexDirection: 'row', gap: 4 },
-    weekDay:       { flex: 1, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.card, padding: 6, alignItems: 'center', gap: 4 },
-    weekDayName:   { fontSize: 9, color: C.text, fontWeight: '700', letterSpacing: 1 },
-    weekDayLabel:  { fontSize: 8, color: C.text, fontWeight: '600', textAlign: 'center', letterSpacing: 0.5 },
-    weekDayRest:   { fontSize: 8, letterSpacing: 0.5 },
+
+    // Calendar tabs
+    calTabRow:     { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 12 },
+    calTab:        { flex: 1, paddingBottom: 8, borderBottomWidth: 2, borderBottomColor: 'transparent', alignItems: 'center' },
+    calTabText:    { fontSize: 10, fontWeight: '700', letterSpacing: 2 },
+
+    // Compact week strip
+    weekStrip:     { flexDirection: 'row', gap: 3, alignItems: 'center' },
+    weekDay:       { flex: 1, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.card, padding: 5, alignItems: 'center', gap: 3 },
+    weekDayName:   { fontSize: 8, color: C.text, fontWeight: '700', letterSpacing: 0.5 },
+    weekDayLabel:  { fontSize: 8, color: C.text, fontWeight: '600', textAlign: 'center' },
+    weekDayRest:   { fontSize: 8 },
+    expandArrow:   { paddingLeft: 6 },
+
+    // Expanded week cards
+    briefTheme:    { fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 },
+    dayCard:       { borderRadius: 12, borderWidth: 1, padding: 14 },
+    dayCardRest:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, paddingVertical: 8, paddingHorizontal: 4 },
+    dayCardDayName:{ fontSize: 9, fontWeight: '700', letterSpacing: 2 },
+    dayCardRestLabel: { fontSize: 9, letterSpacing: 1 },
+    dayCardSplit:  { fontSize: 18, fontWeight: '800', letterSpacing: 1, marginTop: 2 },
+    dayCardMuscles:{ fontSize: 10, marginTop: 2, letterSpacing: 0.5 },
+    dayCardFocus:  { fontSize: 11, marginTop: 8, lineHeight: 16 },
+    dayCardNote:   { fontSize: 11, fontWeight: '700', marginTop: 4 },
+    liftChip:      { borderRadius: 6, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
+    liftChipText:  { fontSize: 10, fontWeight: '600' },
+    todayPip:      { width: 8, height: 8, borderRadius: 4, marginTop: 4 },
+    weeklyTarget:  { fontSize: 10, letterSpacing: 1, textAlign: 'center', marginTop: 4 },
+
+    // Month grid
+    monthDayHeaders:{ flexDirection: 'row', marginBottom: 4 },
+    monthDayHeader: { flex: 1, textAlign: 'center', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
+    monthRow:      { flexDirection: 'row', marginBottom: 4 },
+    monthCell:     { flex: 1, alignItems: 'center', minHeight: 40, gap: 2 },
+    monthCellDate: { fontSize: 10 },
+    monthDot:      { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+    monthDotText:  { fontSize: 8, fontWeight: '800' },
+    monthStats:    { borderWidth: 1, borderRadius: 10, padding: 12, marginTop: 10, gap: 8 },
+    monthStatRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    monthStatLabel:{ fontSize: 9, letterSpacing: 2, fontWeight: '700' },
+    monthStatVal:  { fontSize: 16, fontWeight: '700' },
 
     prCard:        { borderRadius: 12, borderWidth: 1, padding: 14, marginBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
     prUsername:    { fontSize: 10, fontWeight: '700', letterSpacing: 2 },

@@ -183,6 +183,76 @@ export default function SettingsScreen() {
           ))}
         </View>
 
+        {/* Units section */}
+        <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
+          <Text style={[styles.sectionTitle, { color: muted }]}>UNITS</Text>
+          <View style={[styles.row, { alignItems: 'center' }]}>
+            <Text style={[styles.rowLabel, { color: text, flex: 1 }]}>Weight unit</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {(['kg', 'lbs'] as const).map(unit => (
+                <TouchableOpacity
+                  key={unit}
+                  style={{
+                    paddingHorizontal: 16, paddingVertical: 6, borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: (user?.weight_unit ?? 'lbs') === unit ? accent : border,
+                    backgroundColor: (user?.weight_unit ?? 'lbs') === unit ? accent : 'transparent',
+                  }}
+                  onPress={async () => {
+                    await supabase.from('user_profiles').update({ weight_unit: unit }).eq('id', user!.id);
+                    await refreshUser();
+                  }}
+                >
+                  <Text style={{
+                    color: (user?.weight_unit ?? 'lbs') === unit ? C.black : muted,
+                    fontWeight: '700', fontSize: 13, letterSpacing: 1,
+                  }}>{unit.toUpperCase()}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+
+        {/* Hydration section */}
+        <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
+          <Text style={[styles.sectionTitle, { color: muted }]}>HYDRATION</Text>
+          <View style={[styles.row, { alignItems: 'center', marginBottom: 12 }]}>
+            <Text style={[styles.rowLabel, { color: text, flex: 1 }]}>Daily water goal (units)</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {[6, 8, 10, 12].map(n => {
+                const active = ((user as any)?.water_goal_units ?? 8) === n;
+                return (
+                  <TouchableOpacity
+                    key={n}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: active ? accent : border, backgroundColor: active ? accent : 'transparent' }}
+                    onPress={async () => { await supabase.from('user_profiles').update({ water_goal_units: n }).eq('id', user!.id); await refreshUser(); }}
+                  >
+                    <Text style={{ color: active ? C.black : muted, fontWeight: '700', fontSize: 13 }}>{n}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+          <View style={[styles.row, { alignItems: 'center' }]}>
+            <Text style={[styles.rowLabel, { color: text, flex: 1 }]}>Default container</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {(['bottle', 'cup', 'tumbler', 'biggulp'] as const).map(k => {
+                const labels = { bottle: '💧', cup: '🥤', tumbler: '🫗', biggulp: '🪣' };
+                const active = ((user as any)?.default_water_container ?? 'bottle') === k;
+                return (
+                  <TouchableOpacity
+                    key={k}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: active ? accent : border, backgroundColor: active ? accent : 'transparent' }}
+                    onPress={async () => { await supabase.from('user_profiles').update({ default_water_container: k }).eq('id', user!.id); await refreshUser(); }}
+                  >
+                    <Text style={{ fontSize: 16 }}>{labels[k]}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+
         {/* Household section */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionTitle, { color: muted }]}>HOUSEHOLD</Text>

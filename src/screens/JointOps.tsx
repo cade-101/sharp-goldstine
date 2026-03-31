@@ -9,6 +9,7 @@ import { PropsModal } from './HouseholdSetup';
 import { sendPushNotification } from '../lib/sendPushNotification';
 import type { EffortRating } from '../lib/fitnessTypes';
 import VSScreen from '../components/VSScreen';
+import { callEdgeFunction } from '../lib/callEdgeFunction';
 
 // ── DEFAULT SHIT TALK ──────────────────────────────────────────────────────────
 const DEFAULT_SHIT_TALK = [
@@ -23,8 +24,6 @@ const DEFAULT_SHIT_TALK = [
   "Thought you were ready for this 👀",
   "Sending thoughts and prayers to your ego 🙏",
 ];
-
-const EDGE_URL = 'https://rzutjhmaoagjdrjefvzh.supabase.co/functions/v1/fitness-engine';
 
 // ── TYPES ──────────────────────────────────────────────────────────────────────
 type JointScreen = 'invite' | 'waiting' | 'vs' | 'active' | 'complete';
@@ -73,11 +72,7 @@ function formatTime(sec: number) {
 }
 
 function callEngine(body: object): Promise<unknown> {
-  return fetch(EDGE_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }).then(r => { if (!r.ok) throw new Error(`Engine ${r.status}`); return r.json(); });
+  return callEdgeFunction('fitness-engine', body);
 }
 
 // ── COMPONENT ──────────────────────────────────────────────────────────────────

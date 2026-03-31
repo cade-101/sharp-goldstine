@@ -95,7 +95,33 @@ export default function ShoppingList({ onClose }: { onClose: () => void }) {
     if (!user?.id) return;
     setLoadingSuggestions(true);
     try {
-      // Pull frequently bought items from budget_expenses
+      const allSuggestions: Suggestion[] = [];
+
+      // 1. Pantry running low — items expiring within 5 days
+      if (user.house_name) {
+        const cutoff = new Date(Date.now() + 5 * 86400000).toISOString();
+        const { data: lowItems } = await supabase
+          .from('pantry_items')
+          .select('name, estimated_empty_at')
+          .eq('household_id', user.house_name)
+          .lte('estimated_empty_at', cutoff)
+          .order('estimated_empty_at', { ascending: true })
+          .limit(4);
+
+        if (lowItems?.length) {
+          lowItems.forEach(pi => {
+            const days = pi.estimated_empty_at
+              ? Math.round((new Date(pi.estimated_empty_at).getTime() - Date.now()) / 86400000)
+              : null;
+            allSuggestions.push({
+              item: pi.name,
+              reason: days !== null && days <= 0 ? '⚠ Pantry empty' : `⚠ Pantry: ~${days}d left`,
+            });
+          });
+        }
+      }
+
+      // 2. Frequently bought groceries from expense history
       const { data: expenses } = await supabase
         .from('budget_expenses')
         .select('note')
@@ -105,24 +131,27 @@ export default function ShoppingList({ onClose }: { onClose: () => void }) {
         .order('created_at', { ascending: false })
         .limit(50);
 
-      if (!expenses?.length) return;
+      if (expenses?.length) {
+        const counts: Record<string, number> = {};
+        expenses.forEach(e => {
+          const key = (e.note ?? '').toLowerCase().trim();
+          if (key) counts[key] = (counts[key] ?? 0) + 1;
+        });
 
-      const counts: Record<string, number> = {};
-      expenses.forEach(e => {
-        const key = (e.note ?? '').toLowerCase().trim();
-        if (key) counts[key] = (counts[key] ?? 0) + 1;
-      });
+        const existingNames = new Set(allSuggestions.map(s => s.item.toLowerCase()));
+        Object.entries(counts)
+          .filter(([item, count]) => count >= 2 && !existingNames.has(item))
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 4 - allSuggestions.length)
+          .forEach(([item, count]) => {
+            allSuggestions.push({
+              item: item.charAt(0).toUpperCase() + item.slice(1),
+              reason: `Bought ${count}× recently`,
+            });
+          });
+      }
 
-      const frequent = Object.entries(counts)
-        .filter(([, count]) => count >= 2)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 4)
-        .map(([item, count]) => ({
-          item: item.charAt(0).toUpperCase() + item.slice(1),
-          reason: `Bought ${count}× recently`,
-        }));
-
-      setSuggestions(frequent);
+      setSuggestions(allSuggestions);
     } finally {
       setLoadingSuggestions(false);
     }

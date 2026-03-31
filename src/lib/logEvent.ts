@@ -7,9 +7,12 @@ export type EventType =
   | 'blitz_start'
   | 'blitz_complete'
   | 'intel_drop'
+  | 'intel_text'
   | 'signal_sent'
   | 'envelope_open'
-  | 'supply_run_add';
+  | 'supply_run_add'
+  | 'drink_logged'
+  | 'water_logged';
 
 export async function logEvent(
   userId: string,

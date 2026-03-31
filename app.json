@@ -23,12 +23,14 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.spectre.labs.tether"
+      "package": "com.spectre.labs.tether",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-dev-client",
       "expo-font",
       "expo-secure-store",
       "expo-calendar",
@@ -37,6 +39,20 @@
         {
           "icon": "./assets/icon.png",
           "color": "#c9a84c"
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      [
+        "react-native-health-connect",
+        {
+          "permissions": [
+            "READ_SLEEP",
+            "READ_HEART_RATE",
+            "READ_HEART_RATE_VARIABILITY",
+            "READ_STEPS",
+            "READ_ACTIVE_CALORIES_BURNED",
+            "READ_RESTING_HEART_RATE"
+          ]
         }
       ]
     ],

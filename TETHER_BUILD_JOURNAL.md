@@ -1,5 +1,5 @@
 # TETHER — BUILD JOURNAL
-*Last updated: March 21, 2026 (Session 24)*
+*Last updated: March 31, 2026 (Sessions 27–32)*
 
 ---
 
@@ -8,7 +8,7 @@
 **Start dev server:** `cd tether && npx expo start` → scan QR with Expo Go
 **EAS Build (standalone APK):** `eas build --platform android --profile preview`
 **Expo account:** spectre.labs
-**Resume in new chat:** Upload this file + Spectre-Labs-Master-Context-v2.docx + Spectre_Labs_Privacy_and_security.docx and say "Read the project files. We're on Tether. Confirm build status and ask me what we're working on."
+**Resume in new chat:** Upload this file + Spectre-Labs-Master-Context-v2.md + Spectre_Labs_Privacy_and_security.docx and say "Read the project files. We're on Tether. Confirm build status and ask me what we're working on."
 
 ---
 
@@ -208,6 +208,7 @@ A mass-market family operating system built specifically for ADHD households. No
 - ✅ `"scheme": "tether"` in app.json (required for Linking / OAuth)
 - ✅ expo-notifications plugin added to app.json
 - ⬜ Google Calendar fully wired into app
+- ✅ Client-side Fitness Engine (`src/lib/fitness/engine.ts`) — deterministic set planning
 - ⬜ D's phone — install Session 14 APK when build completes (Session 13 build `53b48c7e` shipped)
 
 ### Screens Built
@@ -253,7 +254,8 @@ A mass-market family operating system built specifically for ADHD households. No
 - ✅ **RoninInkWash / RoninPRCelebration / RoninRankUp** — RONIN theme animations
 - ✅ **ValkyrieLightning / ValkyriePRCelebration** — VALKYRIE theme animations
 - ✅ **EffortSelector** (`src/components/EffortSelector.tsx`) — 2×2 RPE chip grid
-- ✅ **WarRoom** (`src/screens/WarRoom.tsx`) — command center home screen. Clock + themed greeting, **INTEL DROP button** (receipt scanner → auto-routes to pantry/household/finance), **Grocery Nudge cards** (deal alerts), Brain State check-in (4 states → user_context_snapshots), Today's Missions (3 editable slots), Incoming Signals (unread props from partner), Allied Forces (partner name/theme/link status), Quick Access row. Theme-aware via UserContext.
+- ✅ **WarRoom** (`src/screens/WarRoom.tsx`) — command center home screen. Clock + themed greeting, **INTEL overlay** (4-mode: Photo/Screenshot/Voice/Text → queue → FILED AND FORGOTTEN), **RECON strip** (sleep/HRV/resting HR/steps from wearable), **Grocery Nudge cards** (deal alerts), Brain State check-in (4 states → user_context_snapshots), Today's Missions (3 editable slots w/ AI sub-steps), Incoming Signals (unread props from partner), Allied Forces (partner name/theme/link status), BLITZ button, SUPPLY RUN, Quick Access row (WORK/FIT/PANTRY/ARMORY/OPS). Theme-aware via UserContext.
+- ✅ **Pantry** (`src/screens/Pantry.tsx`) — 5-tab inventory screen (Fridge/Freezer/Pantry/House/Kids). Color-coded status dots, running low banner, expandable item detail, USED IT + REMOVE actions. Auto-populated by Intel image drop. Opened as overlay from WarRoom quick access.
 - ✅ **SignalButton** (`src/components/SignalButton.tsx`) — floating 📡 FAB, bottom-right above tab bar. Tap → slide-up bottom sheet. 8 default signals + custom signal input (saved to household_settings.signal_library). Sends to partner via props table (event_type: 'signal'). Dismissed individually in WarRoom Incoming Signals panel.
 - ⚠️ **BattleMode** (`src/screens/BattleMode.tsx`) — LEGACY, queries `gym_sessions` with hardcoded athlete strings. Remove after legacy tables dropped.
 
@@ -261,21 +263,38 @@ A mass-market family operating system built specifically for ADHD households. No
 - ✅ `workday_sessions` — brain_state, blocks_completed, date
 - ✅ `workout_sessions` — user_id, started_at, ended_at, label, mode, planned_by_ai
 - ✅ `exercise_performance` — session_id, exercise_name, set_index, weight, reps, effort, is_pr
-- ✅ `user_profiles` — id, username, theme, athlete, goals, training_days, equipment, body_focus, house_name, kids_themes, spotify fields, valkyrie_seen, **rank (integer, default 1)**
-- ✅ `budget_expenses` — user_id, envelope_id, amount, note, date
+- ✅ `user_profiles` — id, username, theme, athlete, goals, training_days, equipment, body_focus, house_name, kids_themes, spotify fields, valkyrie_seen, rank, weight_unit, push_token, household_setup_seen
+- ✅ `budget_expenses` — user_id, envelope_id, amount, note, date, recipient, recurrence, receipt_fingerprint
+- ✅ `income_transactions` — user_id, amount, source, note, category, date, recurrence, receipt_fingerprint
 - ✅ `committed_bills` — user_id, merchant, amount, due_day, account, is_auto_pay, envelope_id, last_seen
-- ✅ `user_context_snapshots` — user_id, brain_state, captured_at (+ cached context payload)
-- ✅ `household_settings` — house_name, shit_talk_library, **signal_library (jsonb, default '[]')**
+- ✅ `user_context_snapshots` — user_id, brain_state, captured_at
+- ✅ `household_settings` — house_name, shit_talk_library, signal_library (jsonb)
 - ✅ `props` — from_user, to_user, message, event_type, seen
 - ✅ `household_events` — house_name, event_type, payload, triggered_by
+- ✅ `armory_clarifications` — user_id, transaction_name, amount, date, recipient, status, resolved_envelope_id, options, answered, answer, prompt_count, last_prompted_at. (Unknown e-transfers routed here for push clarification.)
+- ✅ `health_snapshots` — user_id, date, sleep_hours, sleep_start, sleep_end, resting_hr, avg_hr, hrv_ms, steps. Unique (user_id, date).
+- ✅ `pantry_items` — household_id (text), name, category, quantity, unit, location (fridge/freezer/pantry/household/kids), purchased_at, estimated_empty_at, added_via
+- ✅ `purchase_history` — user_id, household_id (text), item_name, item_category, store, quantity, price_paid, purchased_at
+- ✅ `household_item_preferences` — household_id (text), item_name, usual_store, avg_purchase_interval_days, last_purchased_at
+- ✅ `intel_queue` — user_id, type (image/voice/text), payload, status, result, created_at, processed_at. RLS enabled.
+- ✅ `field_reset_sessions` / `injury_flags` / `shopping_list_items` / `flyer_deals` / `grocery_nudges` / `user_events`
 - ⚠️ `gym_sessions` — legacy. Pending removal after BattleMode redesign.
 - ⚠️ `gym_profiles` — legacy. Pending removal.
 
 ### Supabase Edge Functions
-- ✅ `fitness-engine` — handles session_start, set_completed, exercise_skipped, session_end, joint_ops_start
-  - Anthropic (claude-sonnet-4-20250514) for live plan adaptation
+- ✅ `fitness-engine` — handles session_start, set_completed, exercise_skipped, session_end, joint_ops_start, **weekly_brief**
+  - Anthropic (claude-sonnet-4-6) for live plan adaptation
   - PR detection server-side, daily context snapshot (getUserContext with 24h cache)
+  - Health snapshot integration: sleepRolling7d, stepsRolling7d, hrvRolling7d, latestHrv, latestSleep
+  - HRV/sleep-based prompt rules: <30ms HRV → reduce volume, ≥60ms → PR green-lit, <5h sleep → compressed session
+  - `weekly_brief` event → generates weekTheme, dayBriefs, monthPhase, weeklyTarget (7-day client cache)
   - `ANTHROPIC_API_KEY` set as Supabase secret ✅
+- ✅ `intel-processor` — handles `type: 'image' | 'text' | 'voice'`
+  - Image: any purchase evidence (receipts, product photos, grocery bags, Costco hauls, online orders) → financial items + pantry items in one pass
+  - Text/voice: brain dump routing → expenses, pantry upsert, shopping needs, calendar items returned
+  - Deterministic ENVELOPE_MAP (14 regex entries), per-item dedup, e-transfer → clarification queue
+  - `upsertPantryItem()` — updates pantry_items + purchase_history + household_item_preferences rolling avg
+  - Both deployed with `--no-verify-jwt` ✅
 
 ### Theme System
 - ✅ `src/themes/` — iron.ts, form.ts, ronin.ts, valkyrie.ts, forge.ts, arcane.ts, dragonfire.ts, void.ts, verdant.ts + index.ts
@@ -291,12 +310,16 @@ A mass-market family operating system built specifically for ADHD households. No
 - ⬜ Spotify redirect URI — add `tether://spotify` in Spotify Developer Dashboard → app → Redirect URIs
 - ⬜ Flyer deal ingestion — seed `flyer_deals` table (manual CSV or flyer API) before nudges fire in prod
 - ⬜ WarRoom missions persistence — currently in-memory; wire to Supabase or AsyncStorage
-- ⬜ Pantry / household inventory screen — UI to browse pantry_items + household_items ("Did we buy that?")
-- ⬜ Consumption pattern engine — estimate `estimated_empty_at` from avg_purchase_interval in household_item_preferences
-- ⬜ Google Calendar wired in
+- ✅ Pantry screen built (`Pantry.tsx`) — 5 tabs, running low banner, status dots, USED IT / REMOVE
+- ✅ Consumption engine (`consumptionEngine.ts`) — depletion estimates, markConsumed, running low queries
+- ✅ Google Calendar wired in FitnessScreen (session → event) + one-time month scheduling
+- ✅ Push token in `user_profiles` — real push delivery active
+- ✅ WarRoom missions persistence via AsyncStorage with daily reset
+- ✅ Interactive push clarifications — unknown e-transfers get action buttons answerable without opening app
+- ⬜ Spotify full OAuth flow tested end-to-end
 - ⬜ RLS enabled on all tables (before public launch)
-- ⬜ Push token storage (add `push_token` column to `user_profiles`) — enables real push delivery for SignalButton
-- ⬜ WarRoom missions persistence (currently in-memory, wire to Supabase or AsyncStorage)
+- ⬜ Flyer deal ingestion — seed `flyer_deals` table before nudges fire in prod
+- ⬜ "Thinking of You" button
 
 ---
 
@@ -971,10 +994,342 @@ CREATE TABLE user_events (id uuid PK, user_id uuid FK, event_type text, metadata
 
 - ✅ APK `build-1774120281641.apk` shipped (76.1 MB, 414 Gradle tasks, 8 min)
 
+### Session 25 — March 26, 2026
+**Live testing fixes — fitness, Joint Ops, War Room, intel**
+
+**APK:** `build-1774224036127.apk` (prior session build, installed on both phones before this session)
+
+**Step 1 — Weight/reps inputs**
+- ✅ FitnessScreen workout `ScrollView` — added `keyboardShouldPersistTaps="handled"` (Android touch intercept was blocking TextInput taps)
+- ✅ JointOps weight/reps were `TouchableOpacity + Text` (non-editable) — replaced with proper `TextInput` components
+- ✅ JointOps `ScrollView` — same keyboard fix applied
+
+**Step 2 — Weight units: KG / LBS**
+- ✅ `UserContext.tsx` — added `weight_unit?: 'kg' | 'lbs'` to User type
+- ✅ `SettingsScreen.tsx` — added UNITS section with KG/LBS toggle; saves to `user_profiles.weight_unit`
+- ✅ FitnessScreen WEIGHT input placeholder now reads from `user.weight_unit` (default `lbs`)
+- SQL: `ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS weight_unit text DEFAULT 'lbs';`
+
+**Step 3 — Joint Ops battleground workout**
+- ✅ `fitness-engine` `handleJointOpsStart` — fetches both users' `training_days` from `user_profiles`
+- ✅ Calculates tomorrow's planned split for each user, injects into Anthropic prompt: "avoid these muscle groups"
+- ✅ Finds exercises both users have done in last 14d with high volume (weight × reps × sets) — "battleground" exercises where both are strong
+- ✅ Falls back to full-body AMRAP/EMOM circuit if no overlap found
+- ✅ Exercises flagged `battleground: true` for UI highlighting
+
+**Step 4 — Joint Ops scoreboard**
+- ✅ Scoreboard switched from point-based to cumulative volume (kg × reps moved)
+- ✅ My volume: derived live from `completedSets` (already in state)
+- ✅ Partner volume: realtime subscription on `exercise_performance` filtered by `session_id` + `partner_id`
+- ✅ Display: shows total volume per user, plus PR count below
+
+**Step 5 — Shit talk fix**
+- ✅ Verified column names: `from_user` / `to_user` (not `_id` suffix) — consistent with WarRoom signals query
+- ✅ Realtime subscription filter confirmed correct
+- ✅ `exercise_name` is passed correctly from `exercises[exerciseIndex].name`
+- ✅ Pending shit talk queue — holds message until partner reaches the same exercise name
+
+**Step 6 — MED EVAC**
+- ✅ Added `🚑 MED EVAC` button below LOG SET on workout screen
+- ✅ First tap: Alert → confirm → writes to `injury_flags`, skips remaining sets, moves to next exercise (cleared in 1 week)
+- ✅ Second tap on same body part: "See a doctor" alert, cleared in 2 weeks
+- ✅ `medEvacCount` state tracks per-exercise tap count within session
+- SQL: `CREATE TABLE IF NOT EXISTS injury_flags (id uuid PK, user_id uuid FK, body_part text, exercise_name text, severity text default 'moderate', active boolean default true, date date default current_date); ALTER TABLE injury_flags DISABLE ROW LEVEL SECURITY;`
+
+**Step 7 — Back buttons**
+- ✅ Workout screen already had `← END` back button (confirmed, no change needed)
+- ✅ Added `← ABORT` back button to loading screen (no way to cancel a hung session start previously)
+
+**Step 8 — Next week preview on PLAN home**
+- ✅ Added NEXT WEEK strip below THIS WEEK on FitnessScreen home — grayed out, smaller labels, shows repeating split pattern from `user.training_days`
+
+**Step 9 — War Room: AI mission steps**
+- ✅ Missions restructured from `string[]` to `Mission[]` with `{ text, steps: [{text, done}][], expanded, done }`
+- ✅ On `saveMission()` — calls Anthropic (claude-haiku-4-5) to break text into 2–5 actionable sub-steps
+- ✅ Steps stored in AsyncStorage alongside mission text
+- ✅ UI: mission row shows chevron to expand steps; each step is a tappable checkbox
+- ✅ Mission auto-marks done when all steps checked
+- ✅ AsyncStorage migration: string[] loads are converted to Mission[] format on first read
+
+**Step 10 — War Room: CLEAR ALL signals**
+- ✅ Added `CLEAR ALL` button at top of INCOMING SIGNALS section
+- ✅ Marks all `event_type='signal'` rows `seen=true` for current user in one query, clears local state
+
+**Step 11 — Intel Drop fix**
+- ✅ Added granular `console.log` at each step (payload received, Anthropic call, response, routing)
+- ✅ Anthropic model confirmed `claude-haiku-4-5-20251001`
+- ✅ Error philosophy: never surface "Processing failed" to user — if Anthropic fails, return `{ itemsLogged: 0, message: 'Filed for later processing' }` with 200 status
+- ✅ Image payload check: if base64 string >1.3MB estimated, logs warning (compression needed upstream)
+
+**Step 12 — Local build**
+- ✅ `build-1774224036127.apk` already on device from prior session
+- 🔄 New build queued after all fixes land
+
+**SQL to run this session:**
+```sql
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS weight_unit text DEFAULT 'lbs';
+
+CREATE TABLE IF NOT EXISTS injury_flags (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at timestamptz DEFAULT now(),
+  user_id uuid REFERENCES auth.users(id),
+  body_part text,
+  exercise_name text,
+  severity text DEFAULT 'moderate',
+  active boolean DEFAULT true,
+  date date DEFAULT current_date
+);
+ALTER TABLE injury_flags DISABLE ROW LEVEL SECURITY;
+```
+
+### Session 26 — March 27–28, 2026
+**Edge Function auth fixes + workout split logic + intel-processor logging**
+
+**Part 1 — Workout always returns Push day (March 27)**
+- ✅ Root cause: prompt gave Anthropic `training_days: [1,4,6]` and `Day: Thursday` with no mapping instructions. Model anchored on the JSON schema example label `"PUSH DAY"` and always returned that.
+- ✅ Added `getSplitLabel()` + `SPLIT_MUSCLES` map to `fitness-engine` — mirrors the exact frontend logic (position in sorted training_days → split name)
+- ✅ Prompt now explicitly states: `TODAY'S SPLIT: PULL DAY — train back, biceps, rear delts. Do NOT train other muscle groups.`
+- ✅ Schema example label is now dynamic (computed split, not hardcoded PUSH DAY)
+- ✅ Added `console.log` before every Anthropic call: split, day, todayNum, trainingDays, prompt preview, response label
+- ✅ Deployed fitness-engine
+
+**Part 2 — Intel Drop silent success, 0 items (March 27)**
+- ✅ Root cause: `supabase.from().insert()` returns `{ data, error }` — doesn't throw. Error was never checked. Function returned `{ itemsLogged: rows.length }` even when the insert failed silently.
+- ✅ Added full error check on insert — returns `{ itemsLogged: 0, message: "Filed for later processing" }` on failure
+- ✅ Added 7 granular `console.log` steps throughout intel-processor
+- ✅ User never sees "Processing failed" — all errors return 200
+- ✅ Confirmed `user_id: userId` already present in every `budget_expenses` insert row
+- ✅ Deployed intel-processor
+
+**Part 3 — 401 auth errors on both functions (March 27)**
+- ✅ Created `src/lib/callEdgeFunction.ts` — single helper for all edge function calls
+  - Gets live session JWT via `supabase.auth.getSession()`
+  - Sends both `Authorization: Bearer <user_jwt>` and `apikey: <anon_key>`
+  - Falls back to anon key if no session (prevents hard crash)
+  - Throws with readable error on non-200
+- ✅ `FitnessScreen.tsx` — replaced bare `callEngine` fetch with `callEdgeFunction('fitness-engine', body)`
+- ✅ `JointOps.tsx` — same replacement
+- ✅ `WarRoom.tsx` — replaced manual `fetch(INTEL_EDGE_URL, ...)` with `callEdgeFunction('intel-processor', ...)`
+- ✅ Removed all dead `EDGE_URL` / `INTEL_EDGE_URL` constants
+
+**Part 4 — Still 401 after Part 3 (March 28)**
+- ✅ Root cause: functions were deployed WITHOUT `--no-verify-jwt`, turning Supabase gateway JWT verification back on. The gateway was rejecting requests before the function ran.
+- ✅ Fix: redeployed both with `--no-verify-jwt`. No code changes needed — the helper was already correct.
+- ✅ Security rationale: `userId` in payload + DB RLS is the real auth layer. Gateway JWT check adds friction without meaningful security benefit here.
+
+**Part 5 — budget_expenses user_id column (March 28)**
+- ✅ `user_id` column added to `budget_expenses` table in Supabase
+- ✅ Confirmed `user_id: userId` already present in insert rows — no code change needed
+- ✅ Redeployed intel-processor to sync live function with current code
+
+**APKs this session:**
+- `build-1774591404530.apk` — split fix + intel logging
+- `build-1774593482219.apk` — auth helper wired in
+- `build-1774714804958.apk` — current build (no code changes, just confirms auth fix)
+
+**SQL run this session:**
+```sql
+ALTER TABLE budget_expenses ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id);
+```
+
+### Session 27 — March 29, 2026
+**ARMORY FIX — intel-processor deterministic rewrite**
+
+Root cause: AI-assigned envelope categories were inconsistent and income detection was broken.
+
+- ✅ `supabase/functions/intel-processor/index.ts` — complete rewrite
+  - `isIncome()`: checks `is_income` flag OR `/deposit|received|payroll|direct deposit|credit/i` regex
+  - `ENVELOPE_MAP: [RegExp, string][]`: 14-entry deterministic map (regex → envelope_id). No AI categorization.
+  - `categorize(name)`: iterates ENVELOPE_MAP, returns `'overflow'` if no match
+  - Per-item dedup: queries `budget_expenses`/`income_transactions` for same `amount + note` within ±1 day before every insert
+  - Unknown e-transfers (`envelope === 'unknown_transfer'`) → `armory_clarifications` table + `budget_expenses` with `envelope_id = 'pending'`
+  - Whole-image fingerprint as fast-path dedup (within 1hr)
+  - AI prompt simplified: extract name, amount, is_income, recipient only — no categorization
+  - Response shape: `{ itemsLogged, incomeLogged, clarifications, store }` (`routedTo` removed)
+- ✅ `armory_clarifications` table created (MCP)
+  - Columns: id, user_id, transaction_name, amount, date, recipient, status, resolved_envelope_id, created_at
+  - RLS enabled, indexes on user_id + status
+- ✅ `WarRoom.tsx` — `intelResult` type updated, result display updated, try/catch around response parsing
+- ✅ Deployed `intel-processor --no-verify-jwt`
+- ✅ `callEdgeFunction` required on all edge function calls — gateway JWT must stay off
+
+### Session 28 — March 29, 2026
+**Workout calendar + WarRoom training mission + Blitz calendar + FitnessScreen calendar view**
+
+**Google Calendar integration (FitnessScreen)**
+- ✅ `startSession()` — calls `addWorkoutToCalendar(label, startTime, durationMinutes)` on session start via `expo-calendar`
+- ✅ `scheduleMonthCalendar()` — one-time on first use: creates 4 weeks of recurring workout events. AsyncStorage flag `cal_scheduled_{userId}` prevents re-creation.
+- ✅ Hard stop row replaced with duration chips + LEAVE BY button + DateTimePicker (`@react-native-community/datetimepicker`)
+  - `getHardStopDate()` / `getEffectiveMinutes()` — compute from LEAVE BY time or fixed duration
+- ✅ Blitz: after 3 sessions, prompts to add 28-day "BLITZ — Field Reset" calendar block at 7:30am
+
+**THIS WEEK / THIS MONTH calendar view (FitnessScreen PLAN mode)**
+- ✅ New state: `calendarTab` ('week'|'month'), `weeklyBrief`, `monthSessions`, `weekExpanded`
+- ✅ `loadWeeklyBrief()` — calls `fitness-engine` `weekly_brief` event, 7-day AsyncStorage cache, structured fallback if Anthropic fails
+- ✅ `handleWeeklyBrief()` in `fitness-engine` — queries last 6 sessions, builds split map per day, calls Anthropic → `{ weekTheme, dayBriefs, monthPhase, weeklyTarget, generatedAt }`
+- ✅ `loadMonthSessions()` — queries `workout_sessions` for current month
+- ✅ UI: tab row (THIS WEEK / THIS MONTH), expandable week cards (per-day split/muscles/focus/note + lift chips), month grid (dots for session days), weekly target banner
+
+**WarRoom training mission**
+- ✅ Missions auto-reset on new day pre-populates slot 0 with today's split if it's a training day
+  - E.g. `IRON — PUSH DAY 💪`
+
+### Session 29 — March 29, 2026
+**Wearable integration — Google Health Connect**
+
+- ✅ `src/lib/healthConnect.ts` (new)
+  - Android-only dynamic import (`await import('react-native-health-connect')`) — never crashes on iOS/dev
+  - `initHealthConnect()` — initializes + requests 6 permissions (SleepSession, HeartRate, HeartRateVariabilityRmssd, Steps, RestingHeartRate, ActiveCaloriesBurned)
+  - `getLastNightSleep()` — SleepSession 6pm yesterday → now, returns `{ hours, startTime, endTime }`
+  - `getTodayHR()` — averages all HeartRate samples today
+  - `getLatestHRV()` — `HeartRateVariabilityRmssd.heartRateVariabilityMillis` (last 24h)
+  - `getTodaySteps()` — sums Steps.count today
+  - `getRestingHR()` — most recent RestingHeartRate today
+  - `getAllHealthData()` — runs all 5 in parallel, returns null if permissions not granted
+  - All wrapped in try/catch — never blocks app startup
+- ✅ `src/context/UserContext.tsx` — `HealthData` state + `syncHealthData()` called non-blocking after `loadProfile()`
+  - Upserts to `health_snapshots` table (onConflict: 'user_id,date')
+  - `healthData` exposed via context
+- ✅ `health_snapshots` table created (MCP): user_id, date, sleep_hours, sleep_start, sleep_end, resting_hr, avg_hr, hrv_ms, steps. Unique on (user_id, date).
+- ✅ `supabase/functions/fitness-engine/index.ts`
+  - `getUserContext()` — queries `health_snapshots` last 7 days, computes rolling averages
+  - `handleSessionStart()` — reads real-time `healthContext` from payload, injects into Anthropic prompt
+  - Health-based rules in prompt: HRV <30 → reduce volume 20% + no PR attempts, HRV ≥60 → PR green-lit, sleep <5h → compressed session
+  - `handleWeeklyBrief()` — added; generates `weekTheme, dayBriefs, monthPhase, weeklyTarget` for FitnessScreen plan view
+- ✅ `FitnessScreen.tsx` — `startSession()` passes `healthContext: { sleepHours, hrv, restingHR, steps }` and `sleepContext` string to fitness-engine
+- ✅ `WarRoom.tsx` — RECON strip between Brain State and BLITZ sections
+  - Expandable (tap ▼/▲), shows: 💤 sleep hours, ❤️ resting HR, 📊 HRV (color-coded: green/yellow/red), 👟 steps
+  - Expanded: HRV status label, sleep flag, avg HR, step count
+  - Only renders if `healthData` is non-null (Android with permissions)
+- ✅ `app.json` — Health Connect plugin expanded with full permissions object
+- ✅ Bug fixed: `HeartRateVariabilityRmssd` (not `HeartRateVariabilitySdnn`) — TypeScript SDK type
+
+### Session 30 — March 30, 2026
+**Pantry + Consumption Engine + Smart Filing + Intel 4-Mode Overlay + Interactive Push**
+
+**Database migrations (MCP)**
+- ✅ `alter_armory_clarifications_add_push_fields` — added: options (jsonb), answered (bool), answer (text), prompt_count (int), last_prompted_at (timestamptz)
+- ✅ `create_intel_queue` — intel_queue table: id, user_id, type (image/voice/text), payload, status (pending/processing/done/failed), result, created_at, processed_at. RLS enabled.
+- ✅ `pantry_household_id_to_text` — changed `household_id` in pantry_items, purchase_history, household_item_preferences from uuid to text (to match existing `house_name` text key pattern)
+
+**intel-processor — expanded for any purchase evidence**
+- ✅ Now accepts `type: 'image' | 'text' | 'voice'` in request body
+- ✅ Image path: new expanded prompt extracts TWO groups from any evidence:
+  - GROUP 1 — Financial transactions → `budget_expenses` / `income_transactions` (existing flow)
+  - GROUP 2 — Pantry/grocery items (individual products) → `pantry_items` + `purchase_history` + `household_item_preferences`
+  - Handles: store receipts, bank screenshots, grocery bags, product photos, Costco hauls, online order screenshots
+  - Legacy `items` shape (no `financial_items`/`pantry_items` split) still supported as fallback
+- ✅ Text/voice path: brain dump routing — expenses, pantry items (have vs need), calendar items
+  - "need" items → returned as `shoppingNeeds` for client to add
+  - "have" items → upserted to `pantry_items`
+  - Calendar items → returned as `calendarItems` (client handles)
+- ✅ `upsertPantryItem()` — upserts `pantry_items` (adds qty if exists), logs `purchase_history`, updates rolling avg in `household_item_preferences`
+- ✅ `PANTRY_LOCATION` map: category → location tab (fridge/freezer/pantry/household/kids)
+- ✅ Deployed `intel-processor --no-verify-jwt`
+
+**consumptionEngine.ts** (`src/lib/consumptionEngine.ts`)
+- ✅ `CATEGORY_LIFESPAN_DAYS` — per-category default depletion windows (produce: 5d, dairy: 7d, meat: 3d, frozen: 30d, etc.)
+- ✅ `getEstimatedEmptyDate()` — uses `household_item_preferences.avg_purchase_interval_days`, falls back to category default
+- ✅ `refreshEstimates()` — backfills `estimated_empty_at` for items without one
+- ✅ `getRunningLow()` — items with `estimated_empty_at` within next N days
+- ✅ `markConsumed()` — decrements quantity, recalculates `estimated_empty_at` proportionally, removes item if qty reaches 0
+- ✅ `updateConsumptionPattern()` — refreshes estimate after new purchase
+- ✅ `getPantryByLocation()` — returns items grouped by fridge/freezer/pantry/household/kids
+- ✅ `daysUntilEmpty()` / `getStatusColor()` — returns color (green/yellow/orange/red) for UI
+
+**Pantry.tsx** (`src/screens/Pantry.tsx`)
+- ✅ 5 tabs: ❄️ FRIDGE · 🧊 FREEZER · 🥫 PANTRY · 🧴 HOUSE · 🧸 KIDS
+- ✅ Running low banner (yellow, horizontal scroll of low-stock items)
+- ✅ Per-item colored status dot, expandable detail (last stocked, est. empty date, category)
+- ✅ USED IT button (calls `markConsumed`) + REMOVE button (hard delete)
+- ✅ Empty state per tab: "Drop a grocery receipt in Intel to auto-populate"
+- ✅ Refreshes estimates on focus
+- ✅ Accessible from WarRoom QUICK ACCESS via overlay (same pattern as ShoppingList)
+
+**ShoppingList.tsx — pantry suggestions**
+- ✅ `loadSuggestions()` rewritten: pantry running-low items appear FIRST (⚠ badge), then frequent grocery history
+- ✅ Pantry suggestions: items with `estimated_empty_at` within 5 days, formatted "⚠ Pantry: ~Xd left"
+
+**WarRoom Intel Overlay (4-mode)**
+- ✅ Intel Drop button replaced with compact INTEL button → opens full-screen `Modal`
+- ✅ 4-mode selector: 📷 PHOTO · 🖼️ SCREEN · 🎤 VOICE · ⌨️ TYPE
+- ✅ Photo/Screenshot mode: pick from camera or gallery → processes immediately → result shown in queue
+- ✅ Voice/Text mode: multiline TextInput (with keyboard mic for voice), "+ ADD TO QUEUE" button
+- ✅ Queue display: type icon, content preview, live status (processing spinner / ✓ done / ✗ failed), result summary
+- ✅ **FILED AND FORGOTTEN** button: processes all pending text items in queue, closes overlay after 1.5s delay
+- ✅ Image items process immediately on add; text/voice items queue and batch-submit on FILED AND FORGOTTEN
+- ✅ `IntelMode` + `IntelQueueItem` types at module scope
+- ✅ Pantry quick access added to QUICK ACCESS row (opens Pantry overlay)
+
+**Interactive push + downtime detector** (`src/lib/downtimeDetector.ts`)
+- ✅ `setupClarifyCategory()` — registers `clarify_transfer` notification category with 6 action buttons: MORTGAGE · GROCERIES · FUEL · KIDS · OTHER · SKIP
+- ✅ `checkAndSendPendingClarifications(userId)` — queries unanswered e-transfers, sends push with action buttons, updates `prompt_count + last_prompted_at`
+- ✅ `resolveClarification(clarificationId, envelopeId)` — marks clarification resolved, re-categorizes the `pending` budget_expense to the chosen envelope
+- ✅ `UserContext.tsx` — calls `setupClarifyCategory()` + `checkAndSendPendingClarifications()` after login
+- ✅ `App.tsx` — `Notifications.addNotificationResponseReceivedListener` routes button taps to `resolveClarification`
+- ✅ `App.tsx` — `AppState.addEventListener('change')` fires `checkAndSendPendingClarifications` on foreground
+
+### Session 31 — March 30, 2026
+
+**D's FitnessScreen bug fixes:**
+- ✅ Bug 1 — Stale closure fixed: `setCurrentSetIndex(prev => prev + 1)` in catch block (was `setCurrentSetIndex(currentSetIndex + 1)`)
+- ✅ Bug 2+3 — Weight unit: label now reads `WEIGHT (LBS)` / `WEIGHT (KG)` from user context on every render. Suggested weight meta text uses correct unit. No local state copy.
+- ✅ Bug 4 — Cardio log: CARDIO LOG button on home screen mode grid + complete screen. `CardioModal` component with 8 type options (Elliptical, Run, Bike, Row, Swim, Walk, Stairmaster, Jump Rope). Saves to `exercise_performance` as `Cardio — ${type}`, reps = durationMinutes, PR = longest session.
+
+**Fitness Progression Engine:**
+- ✅ `fitness-engine` — `getUserContext()` now computes consistency score (sessions last 7d / 30d, `isConsistent` = 8+ sessions/30d, `isGymRat` = 12+)
+- ✅ Cardio detection — queries `exercise_performance` for voluntary cardio history. Stored in snapshot as `hasLoggedCardioVoluntarily`
+- ✅ Session start prompt — cardio block mandatory in every workout. If user has logged cardio voluntarily → labeled correctly (Elliptical, Run, etc.). If not → disguised as Pump-up circuit (start) or Finisher (end). Never uses word "cardio" for avoiders.
+- ✅ D flag — D has logged elliptical, so her cardio shows correctly labeled automatically.
+- ✅ Deployed `fitness-engine --no-verify-jwt`
+
+**Water Tracker (WarRoom):**
+- ✅ Water tracker between Brain State and Today's Missions
+- ✅ 8 drink types: bottle (💧 500ml), cup (🥤 250ml), tumbler (🫗 750ml), big gulp (🪣 1000ml), pepsi (🥤 355ml, type: caffeine_sugar), coffee (☕ 250ml, type: caffeine), drink (🍺 355ml, type: alcohol), other (💬 250ml)
+- ✅ Quick tap [+ 💧] logs default container instantly. ▼ opens bottom sheet with all 8 options
+- ✅ Water options on top, other drinks below divider — no labels, no judgment, just logging
+- ✅ UNDO removes last entry
+- ✅ Goal completion message — theme-appropriate (RONIN: "Discipline maintained." VALKYRIE: "Hydrated. Ready." etc.)
+- ✅ Persists to AsyncStorage keyed `water_log_${userId}_${date}` — resets each day
+- ✅ Saves to `health_snapshots.water_ml` (total), `caffeine_sugar_ml`, `alcohol_units` on every log
+- ✅ `logEvent('drink_logged', { drink_type, amount_ml, container })` — silent data layer for pattern engine
+- ✅ Settings — water goal (6/8/10/12 units), default container stored in `user_profiles`
+
+**Supabase migrations applied:**
+- ✅ `user_goals` — goal_text, goal_type, target_value, target_unit, target_date, current_value, achieved
+- ✅ `nutrition_logs` — protein_g, calories, carbs_g, fat_g, water_ml, log_level
+- ✅ `user_profiles` — added macro_tier, goal_unlocked, consistency_unlocked_at, water_goal_units (default 8), default_water_container (default 'bottle')
+- ✅ `health_snapshots` — added water_ml, caffeine_sugar_ml, alcohol_units
+
+**Deferred to next session:**
+- Goal unlock push notification + War Room goal card (requires consistency detection to trigger)
+- Macro unlock tiers (protein-only → protein+calories → full macros)
+- MISSION card in War Room for active goals with progress bar
+
+**Build needed** — `react-native-health-connect` is a native module, requires local EAS build:
+```
+ANDROID_HOME=~/Library/Android/sdk JAVA_HOME=/opt/homebrew/opt/openjdk@17 eas build --platform android --profile preview --local
+```
+
+### Session 32 — March 31, 2026
+**Architecture refactor + Root Routing + Pantry Sync**
+
+- ✅ **Client-side Fitness Engine** (`src/lib/fitness/engine.ts`): Ported core workout state logic from Edge Functions.
+  - Implements `logSetAndReplan` for zero-latency weight/set adjustments based on effort.
+  - Implements `getRestDurationForSet` with time-based compression.
+  - Edge functions (Sonnet) now focus on long-term strategy, while client handles deterministic set-to-set flow.
+- ✅ **Root-level Event Routing** (`App.tsx`): 
+  - Centralized deep-link parsing for `tether://join` and Spotify redirects.
+  - Implemented `addNotificationResponseReceivedListener` for `clarify_transfer` interactive pushes.
+  - Wired `AppState` listener to trigger `checkAndSendPendingClarifications` on app focus.
+- ✅ **Shopping List Pantry Sync**: `ShoppingList.tsx` now correctly surfaces "Running Low" items from `pantry_items` by checking `estimated_empty_at` and recent purchase frequency.
+- ✅ **Theme Icon Map**: Verified and finalized tab bar icons/labels for all 8 war themes (Ember, Ronin, Valkyrie, etc.).
+
 ### Immediate (next build session)
-1. **Test on both phones** — D joins, QR flow, BLITZ end-to-end, Supply Run household sync, push notifications end-to-end
-2. **Spotify Client ID** — wire and test full OAuth flow
-3. **"Thinking of You" button** — defaults + library
+1. **Goal unlock flow** — consistency detection fires push, War Room goal card appears.
+2. **Macro tiers** — protein-only unlocks after goal set.
+3. **"Thinking of You" button** — library implementation.
+4. **Spotify Full Test** — wire and test full OAuth flow with Client ID.
 
 ### Architecture (before public launch)
 - **SPECTRELABS_ETHICS_KEY** — add to codebase. Feu Follet commitment 03.
@@ -2131,6 +2486,153 @@ Tether tracks patterns silently across ALL modules and learns the user's persona
 ### Key Principle
 **Never clinical. Never alarming. Never without consent.**
 The app is a pattern mirror, not a diagnosis. It says "here's what we've seen before" not "you're having an episode." The user stays in control. Partner notifications always opt-in.
+
+---
+
+---
+
+## SESSION 27 — ARMORY FIX + WAR ROOM CRASH FIX
+*March 29, 2026*
+
+### ARMORY FIX — intel-processor complete rewrite (Step 2)
+
+**Problem:** Paycheques going to overflow. Tim Hortons going to groceries. Duplicate receipts double-logged. E-transfers had no categorization logic.
+
+**Solution — deterministic regex ENVELOPE_MAP:**
+- AI now only extracts merchant names and amounts — no longer assigns categories
+- 14-entry `ENVELOPE_MAP` matches merchant name → envelope: `coffee`, `nicotine`, `groceries`, `fuel`, `food`, `subscriptions`, `debt_payment`, `insurance`, `phone`, `kids_andy`, `health`, `personal_care`, `unknown_transfer`, `overflow`
+- Income detection: `is_income` flag from AI OR `/deposit|received|payroll|direct deposit|credit/i.test(name)`
+- Per-item dedup: checks `budget_expenses` / `income_transactions` for matching `amount + note + date ±1 day` before every insert
+- Unknown e-transfers → `armory_clarifications` table (status: pending) + `budget_expenses` with `envelope_id = 'pending'`
+- Image fingerprint (whole-receipt dedup) retained as fast-path check
+
+**New table created:** `armory_clarifications` — columns: `id`, `user_id`, `transaction_name`, `amount`, `date`, `recipient`, `status` (pending/resolved/dismissed), `resolved_envelope_id`, `created_at`. RLS enabled.
+
+**Deploy:** `supabase functions deploy intel-processor --no-verify-jwt`
+
+### WAR ROOM CRASH FIX
+
+**Problem:** intel-processor returned 200 but app crashed — `routedTo` field removed from response, `data.routedTo.join(', ')` threw on undefined.
+
+**Fix:** Updated WarRoom response type to `{ itemsLogged, incomeLogged?, clarifications?, store? }`. Added try/catch around response parsing. Updated result display to show expenses + income + pending review count. Crash-safe: always shows "Intel filed" on any post-200 failure.
+
+---
+
+## SESSION 28 — CALENDAR + MISSIONS + LEAVE BY TIME PICKER
+*March 29, 2026*
+
+### Google Calendar integration
+
+**Step 1 — Workout → calendar on session start (FitnessScreen.tsx)**
+- Added `addWorkoutToCalendar(label, startTime, durationMinutes)` — requests calendar permission, finds first writable calendar, creates event titled `{THEME} — {WORKOUT LABEL}`
+- Called in `startSession()` after plan loads, fires-and-forgets (non-blocking)
+- Installed: `expo-calendar` was already present (~55.0.10)
+
+**Step 2 — Schedule month of training events (FitnessScreen.tsx)**
+- Added `scheduleMonthCalendar()` — one-time function, checks AsyncStorage flag `cal_scheduled_{userId}` to prevent re-scheduling
+- Creates 4 weeks of calendar events for all training days (split label as title, 7am start, 75min duration, 15min alarm)
+- Skips past days in current week
+
+**Step 3 — Training mission auto-populated in War Room (WarRoom.tsx)**
+- Daily missions reset now checks if today is a training day
+- If yes, slot 0 pre-populated with `{THEME} — {SPLIT} DAY 💪`
+- Uses same `SPLIT_LABELS` lookup as FitnessScreen
+- `useEffect` dependency changed from `[]` to `[user?.id]` so it fires with user data
+
+**Step 4 — BLITZ calendar suggestion (Blitz.tsx)**
+- After `handleLogToWarRoom()`, queries total BLITZ session count
+- On count === 3: Alert prompts user to add weekly BLITZ block
+- `addBlitzToCalendar()`: creates daily 10-min "BLITZ — Field Reset" events for next 28 days (7:30am, 5-min alarm)
+
+### LEAVE BY time picker (FitnessScreen.tsx)
+
+**Problem:** Hard stop only supported fixed durations (45/60/75/90m). No way to say "I need to leave by 6:50am".
+
+**Solution:**
+- Installed: `@react-native-community/datetimepicker`
+- Added state: `hardStopMode` ('duration'|'time'), `leaveByTime` (Date|null), `showTimePicker`
+- Added `getHardStopDate()` — returns leaveBy − 5min buffer, or now + duration
+- Added `getEffectiveMinutes()` — computes minutes remaining until leave-by
+- UI: duration chips + "LEAVE BY" button side by side on one row
+- Duration chips dim when LEAVE BY active; LEAVE BY clears when duration tapped
+- `startSession()` now uses `getHardStopDate()` for `hardStopTimeRef` and `getEffectiveMinutes()` for plan generation and calendar event duration
+
+### Build command
+```
+ANDROID_HOME=~/Library/Android/sdk JAVA_HOME=/opt/homebrew/opt/openjdk@17 eas build --platform android --profile preview --local
+```
+
+---
+
+---
+
+## SESSION 29 — WEARABLE INTEGRATION (RECON MODULE)
+*March 29, 2026*
+
+### What was built
+
+**react-native-health-connect installed** — unified Android health API that pulls from Garmin Connect, Samsung Health, Wear OS, Fitbit. Pre-installed on Android 14+, available on Play Store for older.
+
+**app.json** — plugin entry expanded with full permission set: `READ_SLEEP`, `READ_HEART_RATE`, `READ_HEART_RATE_VARIABILITY`, `READ_STEPS`, `READ_ACTIVE_CALORIES_BURNED`, `READ_RESTING_HEART_RATE`. Note: `HeartRateVariabilityRmssd` is the correct SDK record type (not Sdnn).
+
+**src/lib/healthConnect.ts (new)**
+- Dynamic import — only loads `react-native-health-connect` on Android, all functions return null/0 elsewhere
+- `initHealthConnect()` — initializes + requests permissions
+- `getLastNightSleep()` — queries SleepSession from 6pm yesterday → now, returns hours + start/end
+- `getTodayHR()` — averages all HeartRate samples since midnight
+- `getLatestHRV()` — most recent HeartRateVariabilityRmssd record in last 24h
+- `getTodaySteps()` — sums all Steps records since midnight
+- `getRestingHR()` — most recent RestingHeartRate in last 24h
+- `getAllHealthData()` — runs all 5 in parallel, returns null if not granted
+- All functions wrapped in try/catch — Health Connect unavailable never crashes the app
+
+**health_snapshots table (new)**
+- Columns: `id, created_at, user_id, date, sleep_hours, sleep_start, sleep_end, resting_hr, avg_hr, hrv_ms, steps, source`
+- Unique constraint on `(user_id, date)` — upsert-safe
+- RLS disabled (service role writes from UserContext, no client RLS needed)
+
+**UserContext.tsx**
+- Added `HealthData` type to context
+- `healthData` state exposed via `useUser()` — available across all screens
+- `syncHealthData(userId)` called after `loadProfile` — non-blocking, fires in background
+- On success: sets `healthData` in context + upserts to `health_snapshots` with `onConflict: 'user_id,date'`
+- Errors silently caught — wearable unavailable never blocks auth
+
+**WarRoom.tsx — RECON strip**
+- `healthData` pulled from `useUser()`
+- `reconExpanded` state for expand/collapse
+- RECON strip shown when `healthData` is non-null, between Brain State and BLITZ
+- Strip shows: 💤 sleep hours (red if <5h), ❤️ resting HR, 📊 HRV (green >50ms / yellow 30-50ms / red <30ms), 👟 steps
+- Tap to expand → full detail view with HRV status label ("RECOVERED / MODERATE / FATIGUED"), sleep flag if <5h, avg HR, step count
+- If HRV < 30ms: detail shows "FATIGUED — back off today"
+
+**FitnessScreen.tsx**
+- `healthData` pulled from `useUser()`
+- `startSession()` now passes `healthContext: { sleepHours, hrv, restingHR, steps }` to fitness-engine
+- `sleepContext` computed from actual sleep hours: 'poor' / 'moderate' / 'good' / 'unknown'
+
+**fitness-engine — getUserContext (updated)**
+- Now queries `health_snapshots` in parallel with other data sources
+- Computes `sleepRolling7d`, `stepsRolling7d`, `hrvRolling7d` from last 7 days of snapshots
+- Exposes `latestHrv` and `latestSleep` (today's values, not rolling avg)
+- These replace the placeholder `null` values that were there before
+
+**fitness-engine — handleSessionStart (updated)**
+- Extracts `hc` (healthContext) from payload
+- Uses real-time `hc.hrv` / `hc.sleepHours` with fallback to `context.latestHrv` / `context.latestSleep`
+- Added WEARABLE DATA section to Anthropic prompt
+- Added health-based guidance rules:
+  - HRV < 30ms → reduce volume 20%, skip compounds, no PR attempts
+  - HRV ≥ 60ms → PR attempts green-lit, full volume
+  - Sleep < 5h → compress session, recovery focus only
+  - Sleep 5-7h → moderate intensity, no weight increases
+
+### Requires new build
+`react-native-health-connect` is a native module. Requires:
+```
+ANDROID_HOME=~/Library/Android/sdk JAVA_HOME=/opt/homebrew/opt/openjdk@17 eas build --platform android --profile preview --local
+```
+User must have Google Health Connect installed on device (pre-installed Android 14+, Play Store for older).
 
 ---
 

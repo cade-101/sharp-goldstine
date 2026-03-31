@@ -3,6 +3,8 @@ import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import { supabase } from '../lib/supabase';
 import { getTheme, ThemeTokens } from '../themes';
+import { getAllHealthData, type HealthData } from '../lib/healthConnect';
+import { setupClarifyCategory, checkAndSendPendingClarifications } from '../lib/downtimeDetector';
 
 const BIOMETRIC_EMAIL_KEY = 'tether_bio_email';
 const BIOMETRIC_PASS_KEY = 'tether_bio_pass';
@@ -26,12 +28,18 @@ type User = {
   spotify_token_expiry?: number | null;
   valkyrie_seen?: boolean;
   household_setup_seen?: boolean;
+  weight_unit?: 'kg' | 'lbs';
+  water_goal_units?: number;
+  default_water_container?: string;
+  macro_tier?: number;
+  goal_unlocked?: boolean;
 };
 
 type UserContextType = {
   user: User | null;
   loading: boolean;
   themeTokens: ThemeTokens;
+  healthData: HealthData;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -41,6 +49,7 @@ const UserContext = createContext<UserContextType>({
   user: null,
   loading: true,
   themeTokens: getTheme('iron'),
+  healthData: null,
   signOut: async () => {},
   deleteAccount: async () => {},
   refreshUser: async () => {},
@@ -49,6 +58,7 @@ const UserContext = createContext<UserContextType>({
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [healthData, setHealthData] = useState<HealthData>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -88,6 +98,36 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     // Register push token and store in user_profiles
     registerPushToken(userId);
+
+    // Pull wearable data in background — non-blocking
+    syncHealthData(userId);
+
+    // Set up interactive push categories and check for pending clarifications
+    setupClarifyCategory();
+    checkAndSendPendingClarifications(userId);
+  }
+
+  async function syncHealthData(userId: string) {
+    try {
+      const data = await getAllHealthData();
+      if (!data) return;
+      setHealthData(data);
+
+      // Persist to Supabase for fitness-engine context
+      await supabase.from('health_snapshots').upsert({
+        user_id: userId,
+        date: new Date().toISOString().split('T')[0],
+        sleep_hours: data.sleep?.hours ?? null,
+        sleep_start: data.sleep?.startTime ?? null,
+        sleep_end: data.sleep?.endTime ?? null,
+        resting_hr: data.restingHR ?? null,
+        avg_hr: data.avgHR ?? null,
+        hrv_ms: data.hrv ?? null,
+        steps: data.steps ?? null,
+      }, { onConflict: 'user_id,date' });
+    } catch {
+      // Health Connect unavailable — not a blocking error
+    }
   }
 
   async function registerPushToken(userId: string) {
@@ -184,7 +224,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const themeTokens = getTheme(user?.theme ?? 'iron');
 
   return (
-    <UserContext.Provider value={{ user, loading, themeTokens, signOut, deleteAccount, refreshUser }}>
+    <UserContext.Provider value={{ user, loading, themeTokens, healthData, signOut, deleteAccount, refreshUser }}>
       {children}
     </UserContext.Provider>
   );
