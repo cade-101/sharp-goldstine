@@ -1,0 +1,66 @@
+export default {
+  expo: {
+    "name": "tether",
+    "slug": "tether",
+    "scheme": "tether",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.spectre.labs.tether",
+      "minSdkVersion": 26,
+      "versionCode": 1
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-dev-client",
+      "expo-font",
+      "expo-secure-store",
+      "expo-calendar",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#c9a84c"
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      [
+        "react-native-health-connect",
+        {
+          "permissions": [
+            "READ_SLEEP",
+            "READ_HEART_RATE",
+            "READ_HEART_RATE_VARIABILITY",
+            "READ_STEPS",
+            "READ_ACTIVE_CALORIES_BURNED",
+            "READ_RESTING_HEART_RATE"
+          ]
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0d17867e-1044-4930-bca6-7d42c3215094"
+      }
+    }
+  }
+}
