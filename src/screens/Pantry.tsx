@@ -140,7 +140,7 @@ export default function Pantry() {
 
   return (
     <SafeAreaView style={s.safe}>
-      <StatusBar barStyle="light-content" backgroundColor={T.background} />
+      <StatusBar barStyle="light-content" backgroundColor={T.bg} />
 
       {/* Header */}
       <View style={s.header}>
@@ -207,13 +207,13 @@ export default function Pantry() {
 }
 
 const styles = (T: ReturnType<typeof import('../themes').getTheme>) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: T.background },
+  safe: { flex: 1, backgroundColor: T.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12,
   },
   headerTitle: { fontSize: 22, fontWeight: '900', color: T.text, letterSpacing: 3 },
-  houseName: { fontSize: 12, color: T.textMuted, letterSpacing: 1 },
+  houseName: { fontSize: 12, color: T.muted, letterSpacing: 1 },
 
   lowBanner: {
     backgroundColor: '#1a1500', borderTopWidth: 1, borderBottomWidth: 1,
@@ -229,7 +229,7 @@ const styles = (T: ReturnType<typeof import('../themes').getTheme>) => StyleShee
 
   tabBar: {
     flexDirection: 'row', borderBottomWidth: 1, borderColor: T.border,
-    backgroundColor: T.surface,
+    backgroundColor: T.card,
   },
   tab: {
     flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 4,
@@ -237,7 +237,7 @@ const styles = (T: ReturnType<typeof import('../themes').getTheme>) => StyleShee
   },
   tabActive: { borderBottomWidth: 2, borderBottomColor: T.accent },
   tabIcon: { fontSize: 16, marginBottom: 2 },
-  tabLabel: { fontSize: 9, fontWeight: '700', color: T.textMuted, letterSpacing: 1 },
+  tabLabel: { fontSize: 9, fontWeight: '700', color: T.muted, letterSpacing: 1 },
   tabLabelActive: { color: T.accent },
   tabCount: {
     position: 'absolute', top: 4, right: 4,
@@ -247,18 +247,18 @@ const styles = (T: ReturnType<typeof import('../themes').getTheme>) => StyleShee
   tabCountText: { fontSize: 9, color: '#000', fontWeight: '900' },
 
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  loadingText: { color: T.textMuted, fontSize: 12, letterSpacing: 2 },
+  loadingText: { color: T.muted, fontSize: 12, letterSpacing: 2 },
   emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
   emptyIcon: { fontSize: 48, marginBottom: 16 },
-  emptyTitle: { fontSize: 18, fontWeight: '900', color: T.textMuted, letterSpacing: 3, marginBottom: 8 },
-  emptySubtitle: { fontSize: 13, color: T.textMuted, textAlign: 'center', lineHeight: 20 },
+  emptyTitle: { fontSize: 18, fontWeight: '900', color: T.muted, letterSpacing: 3, marginBottom: 8 },
+  emptySubtitle: { fontSize: 13, color: T.muted, textAlign: 'center', lineHeight: 20 },
 
   list: { flex: 1 },
   listContent: { paddingVertical: 8 },
 
   item: {
     marginHorizontal: 16, marginVertical: 4,
-    backgroundColor: T.surface, borderRadius: 8,
+    backgroundColor: T.card, borderRadius: 8,
     borderWidth: 1, borderColor: T.border,
     overflow: 'hidden',
   },
@@ -266,15 +266,15 @@ const styles = (T: ReturnType<typeof import('../themes').getTheme>) => StyleShee
   statusDot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
   itemText: { flex: 1 },
   itemName: { fontSize: 15, fontWeight: '700', color: T.text },
-  itemMeta: { fontSize: 12, color: T.textMuted, marginTop: 2 },
-  expandArrow: { color: T.textMuted, fontSize: 10, marginLeft: 8 },
+  itemMeta: { fontSize: 12, color: T.muted, marginTop: 2 },
+  expandArrow: { color: T.muted, fontSize: 10, marginLeft: 8 },
 
   itemDetail: {
     paddingHorizontal: 14, paddingBottom: 14,
     borderTopWidth: 1, borderTopColor: T.border,
     paddingTop: 10,
   },
-  itemDetailText: { fontSize: 12, color: T.textMuted, marginBottom: 4 },
+  itemDetailText: { fontSize: 12, color: T.muted, marginBottom: 4 },
   itemActions: { flexDirection: 'row', gap: 10, marginTop: 10 },
   actionBtn: {
     flex: 1, paddingVertical: 8, borderRadius: 6, alignItems: 'center',

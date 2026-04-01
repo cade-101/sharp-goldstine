@@ -1,5 +1,5 @@
 # TETHER — BUILD JOURNAL
-*Last updated: March 31, 2026 (Sessions 27–34)*
+*Last updated: April 1, 2026 (Sessions 27–35)*
 
 ---
 

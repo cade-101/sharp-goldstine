@@ -78,7 +78,7 @@ export default function ValkyrieLightning({ onComplete }: ValkyrieLightningProps
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: VALKYRIE.background,
+    backgroundColor: VALKYRIE.bg,
     alignItems: 'center',
     justifyContent: 'flex-start',
     zIndex: 999,

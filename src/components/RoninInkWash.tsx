@@ -92,7 +92,7 @@ export default function RoninInkWash({ onComplete }: RoninInkWashProps) {
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: RONIN.background,
+    backgroundColor: RONIN.bg,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 999,
