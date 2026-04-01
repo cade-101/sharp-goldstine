@@ -1763,5 +1763,10 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
     intelFiledBtnText: {
       fontSize: 15, fontWeight: '900', color: '#000', letterSpacing: 3,
     },
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
   });
 }

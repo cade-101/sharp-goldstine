@@ -4,9 +4,14 @@ import { ThemeTokens } from '../themes';
 
 const { width, height } = Dimensions.get('window');
 
-export const ShadowThemeUnlock: React.FC<{ newTheme: ThemeTokens; onComplete: () => void }> = ({ newTheme, onComplete }) => {
-  const splitLeft  = useRef(new Animated.Value(0)).current;
-  const splitRight = useRef(new Animated.Value(0)).current;
+interface Props {
+  newTheme: ThemeTokens;
+  onComplete: () => void;
+}
+
+export const ShadowThemeUnlock: React.FC<Props> = ({ newTheme, onComplete }) => {
+  const splitLeft   = useRef(new Animated.Value(0)).current;
+  const splitRight  = useRef(new Animated.Value(0)).current;
   const nameOpacity = useRef(new Animated.Value(0)).current;
   const nameScale   = useRef(new Animated.Value(0.8)).current;
   const fillOpacity = useRef(new Animated.Value(0)).current;
@@ -31,7 +36,7 @@ export const ShadowThemeUnlock: React.FC<{ newTheme: ThemeTokens; onComplete: ()
 
   return (
     <Pressable style={[styles.root, { backgroundColor: newTheme.dark }]} onPress={onComplete}>
-      <Animated.View style={[styles.panel, styles.panelLeft,  { backgroundColor: '#0a0a0a', transform: [{ translateX: splitLeft }]  }]} />
+      <Animated.View style={[styles.panel, styles.panelLeft,  { backgroundColor: '#0a0a0a', transform: [{ translateX: splitLeft  }] }]} />
       <Animated.View style={[styles.panel, styles.panelRight, { backgroundColor: '#0a0a0a', transform: [{ translateX: splitRight }] }]} />
       <Animated.View style={[styles.fill, { backgroundColor: newTheme.bg, opacity: fillOpacity }]} />
       <Animated.View style={[styles.nameContainer, { opacity: nameOpacity, transform: [{ scale: nameScale }] }]}>
@@ -47,14 +52,16 @@ export const ShadowThemeUnlock: React.FC<{ newTheme: ThemeTokens; onComplete: ()
 };
 
 const styles = StyleSheet.create({
-  root:           { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', zIndex: 9999 },
-  panel:          { position: 'absolute', top: 0, width: width * 0.5, height },
-  panelLeft:      { left: 0 },
-  panelRight:     { right: 0 },
-  fill:           { ...StyleSheet.absoluteFillObject },
-  nameContainer:  { alignItems: 'center', zIndex: 10 },
-  era:            { fontSize: 11, letterSpacing: 4, marginBottom: 12, fontWeight: '500' },
-  themeName:      { fontSize: 48, fontWeight: '800', letterSpacing: 6 },
-  divider:        { width: 40, height: 2, marginTop: 16, opacity: 0.6 },
-  tapToContinue:  { position: 'absolute', bottom: 60, fontSize: 11, letterSpacing: 3 },
+  root:          { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', zIndex: 9999 },
+  panel:         { position: 'absolute', top: 0, width: width * 0.5, height },
+  panelLeft:     { left: 0 },
+  panelRight:    { right: 0 },
+  fill:          { ...StyleSheet.absoluteFillObject },
+  nameContainer: { alignItems: 'center', zIndex: 10 },
+  era:           { fontSize: 11, letterSpacing: 4, marginBottom: 12, fontWeight: '500' },
+  themeName:     { fontSize: 48, fontWeight: '800', letterSpacing: 6 },
+  divider:       { width: 40, height: 2, marginTop: 16, opacity: 0.6 },
+  tapToContinue: { position: 'absolute', bottom: 60, fontSize: 11, letterSpacing: 3 },
 });
+
+export default ShadowThemeUnlock;

@@ -146,16 +146,6 @@ export default function FitnessScreen() {
   const isForm = C.mode === 'light';
   const s = makeStyles(C);
 
-  const { intensityStyles, intensityState } = useThemeIntensity({
-    module: 'fitness',
-    params: {
-      sessionsThisWeek: weeklyBrief?.dayBriefs ? Object.keys(weeklyBrief.dayBriefs).length : 0,
-      hrv: healthData?.hrv,
-      sleepHours: healthData?.sleep?.hours,
-      mode: screen === 'workout' ? sessionMode : 'plan'
-    }
-  });
-
   // Navigation
   const [screen, setScreen] = useState<Screen>('home');
 
@@ -215,7 +205,15 @@ export default function FitnessScreen() {
   const [weekExpanded, setWeekExpanded] = useState(false);
   const [weeklyBrief, setWeeklyBrief] = useState<WeeklyBrief | null>(null);
   const [monthSessions, setMonthSessions] = useState<Record<string, string>>({}); // date → label
-
+const { intensityStyles, intensityState } = useThemeIntensity({
+  module: 'fitness',
+  params: {
+    sessionsThisWeek: weeklyBrief?.dayBriefs ? Object.keys(weeklyBrief.dayBriefs).length : 0,
+    hrv: healthData?.hrv,
+    sleepHours: healthData?.sleep?.hours,
+    mode: screen === 'workout' ? sessionMode : 'plan',
+  },
+});
   // Theme animations
   const [showInkWash, setShowInkWash] = useState(false);
 

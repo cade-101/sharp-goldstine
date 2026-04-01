@@ -53,3 +53,9 @@ export const SELECTABLE_THEMES = [
 
 export type SelectableTheme = typeof SELECTABLE_THEMES[number];
 export default themeRegistry;
+export const THEME_REQUIREMENTS: Record<string, { label: string; description: string }> = {
+  SHADOW: { label: 'Shadow', description: 'Complete 10 workouts' },
+  IRON:   { label: 'Iron',   description: 'Log a PR on any lift' },
+  RONIN:  { label: 'Ronin',  description: 'Train 7 days in a row' },
+  FORM:   { label: 'Form',   description: 'Complete 5 Form sessions' },
+};
