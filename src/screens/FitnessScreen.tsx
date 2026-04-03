@@ -11,6 +11,7 @@ import * as Calendar from 'expo-calendar';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase';
 import { useUser } from '../context/UserContext';
+import { incrementThemeMetric } from '../lib/themeUnlocks';
 import EffortSelector from '../components/EffortSelector';
 import { PropsModal, PRCelebration } from './HouseholdSetup';
 import RoninPRCelebration from '../components/RoninPRCelebration';
@@ -31,10 +32,9 @@ import {
 import { SPOTIFY_CLIENT_ID as SPOT_ID } from '../lib/config';
 import { callEdgeFunction } from '../lib/callEdgeFunction';
 import { useThemeIntensity } from '../lib/useThemeIntensity';
+import { ThemeTokens } from '../themes';
 
 WebBrowser.maybeCompleteAuthSession();
-
-import { ThemeTokens } from '../themes';
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────────
 const SPOTIFY_REDIRECT_URI = AuthSession.makeRedirectUri({ scheme: 'tether', path: 'spotify' });
@@ -605,6 +605,7 @@ const { intensityStyles, intensityState } = useThemeIntensity({
 
       setSessionId(result.sessionId);
       setPlan(result.plan);
+      if (user?.id) incrementThemeMetric(user.id, 'workout_days').catch(() => {});
       hardStopTimeRef.current = getHardStopDate();
       setElapsed(0);
       clearInterval(sessionTimerRef.current!);

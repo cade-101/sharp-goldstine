@@ -10,6 +10,7 @@ import { Audio } from 'expo-av';
 import { useUser } from '../context/UserContext';
 import { supabase } from '../lib/supabase';
 import { logEvent } from '../lib/logEvent';
+import { incrementThemeMetric } from '../lib/themeUnlocks';
 import { ANTHROPIC_API_KEY } from '../lib/config';
 import { getHouseholdPlaylistId, getValidAccessToken } from '../lib/spotifyService';
 
@@ -248,7 +249,10 @@ Rules:
   function handleSelectStatus(s: MissionStatus) {
     setStatus(s);
     fetchMission(s);
-    if (user?.id) logEvent(user.id, 'blitz_start', { status: s });
+    if (user?.id) {
+      logEvent(user.id, 'blitz_start', { status: s });
+      incrementThemeMetric(user.id, 'module_days').catch(() => {});
+    }
   }
 
   // ── COMPLETE / REASSIGN ──────────────────────────────────────────────────────

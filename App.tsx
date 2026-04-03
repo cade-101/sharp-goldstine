@@ -37,7 +37,9 @@ function MainApp() {
       const { actionIdentifier, notification } = response;
       const data = notification.request.content.data as { clarificationId?: string; type?: string };
       if (data?.type === 'clarify_transfer' && data.clarificationId) {
-        resolveClarification(data.clarificationId, actionIdentifier);
+        resolveClarification(data.clarificationId, actionIdentifier).catch(err => {
+          console.error('[App] Failed to resolve clarification:', err);
+        });
       }
     });
     return () => sub.remove();

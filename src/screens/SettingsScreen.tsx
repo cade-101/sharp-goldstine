@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
-  StatusBar, Alert, ActivityIndicator, ScrollView, Modal, TextInput,
+  StatusBar, Alert, ActivityIndicator, ScrollView, Modal, TextInput, Platform, AppState,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { useUser } from '../context/UserContext';
 import { supabase } from '../lib/supabase';
 import { getTheme, SELECTABLE_THEMES, THEME_REQUIREMENTS } from '../themes';
+import { requestHealthPermissions, checkHealthPermissions } from '../lib/healthConnect';
 import ValkyrieLightning from '../components/ValkyrieLightning';
-import ShadowThemeUnlock from '../components/ShadowThemeUnlock';
+import ThemeReveal from '../components/ThemeReveal';
 
 const C = {
   black: '#0a0a0a', dark: '#111111', card: '#181818', border: '#2a2a2a',
@@ -17,19 +18,50 @@ const C = {
 };
 
 export default function SettingsScreen() {
-  const { user, signOut, deleteAccount, refreshUser, isDefaultTheme } = useUser();
+  const { user, signOut, deleteAccount, refreshUser } = useUser();
   const [deleteModal, setDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmText, setConfirmText] = useState('');
 
-  // Era unlock state
+  // Theme reveal state
   const [showEraUnlock, setShowEraUnlock] = useState(false);
   const [unlockedTheme, setUnlockedTheme] = useState<any>(null);
+  const [previousTheme, setPreviousTheme] = useState<any>(null);
 
   // Household linking
   const [joinName, setJoinName] = useState('');
   const [joining, setJoining] = useState(false);
   const [showQR, setShowQR] = useState(false);
+
+  // Health Connect
+  const [healthPermsGranted, setHealthPermsGranted] = useState<boolean | null>(null);
+  const [requestingHealth, setRequestingHealth] = useState(false);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    checkHealthPermissions().then(setHealthPermsGranted);
+  }, []);
+
+  const appStateRef = useRef(AppState.currentState);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = AppState.addEventListener('change', async (next) => {
+      if (appStateRef.current.match(/inactive|background/) && next === 'active') {
+        // User returned from Health Connect settings — re-check
+        const granted = await checkHealthPermissions();
+        setHealthPermsGranted(granted);
+        setRequestingHealth(false);
+      }
+      appStateRef.current = next;
+    });
+    return () => sub.remove();
+  }, []);
+
+  function handleRequestHealthPerms() {
+    setRequestingHealth(true);
+    requestHealthPermissions(); // opens HC settings, returns void
+    // result is picked up by the AppState listener above when user returns
+  }
 
   // Admin — Valkyrie grant (spectre.labs only)
   const isAdmin = user?.username === 'spectre.labs';
@@ -68,14 +100,13 @@ export default function SettingsScreen() {
       Alert.alert('Locked', 'VALKYRIE must be granted by command.');
       return;
     }
-    const wasDefault = isDefaultTheme;
     setChangingTheme(true);
+    const prev = getTheme(user.theme ?? 'shadow');
     await supabase.from('user_profiles').update({ theme: newTheme }).eq('id', user.id);
     await refreshUser();
-    if (wasDefault && newTheme.toUpperCase() !== 'SHADOW') {
-      setUnlockedTheme(getTheme(newTheme));
-      setShowEraUnlock(true);
-    }
+    setPreviousTheme(prev);
+    setUnlockedTheme(getTheme(newTheme));
+    setShowEraUnlock(true);
     setChangingTheme(false);
   }
 
@@ -310,6 +341,97 @@ export default function SettingsScreen() {
           )}
         </View>
 
+        {/* Health Connect — Android only */}
+        {Platform.OS === 'android' && (
+          <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
+            <Text style={[styles.sectionTitle, { color: muted }]}>HEALTH CONNECT</Text>
+            <Text style={[styles.privacyNote, { color: muted, marginBottom: 12 }]}>
+              Grants Tether read access to sleep, heart rate, HRV, and steps from Health Connect.
+            </Text>
+            <View style={[styles.row, { alignItems: 'center' }]}>
+              <Text style={[styles.rowLabel, { color: text, flex: 1 }]}>Status</Text>
+              <Text style={{ color: healthPermsGranted ? '#3ce08a' : muted, fontWeight: '700', fontSize: 13, letterSpacing: 1 }}>
+                {healthPermsGranted === null ? 'CHECKING…' : healthPermsGranted ? 'GRANTED' : 'NOT GRANTED'}
+              </Text>
+            </View>
+            {!healthPermsGranted && (
+              <TouchableOpacity
+                style={[styles.joinBtn, { backgroundColor: accent, marginTop: 8 }, requestingHealth && { opacity: 0.5 }]}
+                onPress={handleRequestHealthPerms}
+                disabled={requestingHealth}
+              >
+                {requestingHealth
+                  ? <ActivityIndicator color={C.black} />
+                  : <Text style={styles.joinBtnText}>GRANT ACCESS</Text>}
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* Nutrition */}
+        {(user?.macro_tier ?? 0) >= 1 && (
+          <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
+            <Text style={[styles.sectionTitle, { color: muted }]}>NUTRITION</Text>
+
+            {/* Current tier display */}
+            <View style={[styles.row, { alignItems: 'center' }]}>
+              <Text style={[styles.rowLabel, { color: text, flex: 1 }]}>Tracking level</Text>
+              <Text style={{ color: accent, fontWeight: '700', fontSize: 13, letterSpacing: 1 }}>
+                {(user?.macro_tier ?? 1) >= 3 ? 'FULL MACROS' : (user?.macro_tier ?? 1) >= 2 ? 'PROTEIN + CALORIES' : 'PROTEIN ONLY'}
+              </Text>
+            </View>
+
+            {/* Upgrade to protein + calories (auto unlocks after 3 weeks of tier 1) */}
+            {(user?.macro_tier ?? 0) === 1 && (() => {
+              const unlockedAt = user?.consistency_unlocked_at ? new Date(user.consistency_unlocked_at) : null;
+              const threeWeeksAgo = new Date(Date.now() - 21 * 86400000);
+              return unlockedAt && unlockedAt < threeWeeksAgo;
+            })() && (
+              <TouchableOpacity
+                style={[styles.joinBtn, { backgroundColor: accent, marginTop: 8 }]}
+                onPress={async () => {
+                  await supabase.from('user_profiles').update({ macro_tier: 2 }).eq('id', user!.id);
+                  await refreshUser();
+                }}
+              >
+                <Text style={styles.joinBtnText}>ADD CALORIE AWARENESS</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Full macros toggle — manual only, never auto-suggested more than once */}
+            {(user?.macro_tier ?? 0) >= 1 && (user?.macro_tier ?? 0) < 3 && (() => {
+              const unlockedAt = user?.consistency_unlocked_at ? new Date(user.consistency_unlocked_at) : null;
+              const threeWeeksAgo = new Date(Date.now() - 21 * 86400000);
+              return (user?.macro_tier ?? 0) >= 2 || (unlockedAt && unlockedAt < threeWeeksAgo);
+            })() && (
+              <View style={[styles.row, { alignItems: 'center', marginTop: 4 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowLabel, { color: text }]}>Open full macro tracking</Text>
+                  <Text style={{ fontSize: 11, color: muted, marginTop: 2 }}>
+                    Protein · Calories · Carbs · Fat · Water
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: border }}
+                  onPress={() => Alert.alert(
+                    'Enable full macros?',
+                    'Shows protein, calories, carbs, fat and water. You can turn this off in Settings anytime.',
+                    [
+                      { text: 'Not yet', style: 'cancel' },
+                      { text: 'Enable', onPress: async () => {
+                        await supabase.from('user_profiles').update({ macro_tier: 3 }).eq('id', user!.id);
+                        await refreshUser();
+                      }},
+                    ]
+                  )}
+                >
+                  <Text style={{ color: muted, fontWeight: '700', fontSize: 12, letterSpacing: 1 }}>ENABLE</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Privacy */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionTitle, { color: muted }]}>PRIVACY</Text>
@@ -356,10 +478,11 @@ export default function SettingsScreen() {
       {/* Valkyrie unlock sequence */}
       {showLightning && <ValkyrieLightning onComplete={handleLightningComplete} />}
 
-      {/* Era unlock sequence — fires when leaving SHADOW for the first time */}
+      {/* Theme reveal — fires on every theme switch */}
       {showEraUnlock && unlockedTheme && (
-        <ShadowThemeUnlock
+        <ThemeReveal
           newTheme={unlockedTheme}
+          previousTheme={previousTheme ?? undefined}
           onComplete={() => setShowEraUnlock(false)}
         />
       )}

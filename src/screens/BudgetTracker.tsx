@@ -6,6 +6,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { ANTHROPIC_API_KEY } from '../lib/config';
 import { useUser } from '../context/UserContext';
+import { incrementThemeMetric } from '../lib/themeUnlocks';
 
 import { ThemeTokens } from '../themes';
 import { pickAndParseFinancialImage, ParsedTransaction } from '../lib/parseFinancialImage';
@@ -321,6 +322,7 @@ export default function BudgetTracker() {
       date: new Date().toISOString().split('T')[0],
     };
     await supabase.from('budget_expenses').insert(expense);
+    if (user?.id) incrementThemeMetric(user.id, 'budget_days').catch(() => {});
     setExpenses(prev => [{ ...expense, created_at: new Date().toISOString() }, ...prev]);
     setLogAmount('');
     setLogNote('');

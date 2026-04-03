@@ -2,9 +2,11 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import { supabase } from '../lib/supabase';
-import { getTheme, ThemeTokens } from '../themes';
+import { getTheme, ThemeTokens } from '../themes'; // Assuming this is correct
 import { getAllHealthData, type HealthData } from '../lib/healthConnect';
 import { setupClarifyCategory, checkAndSendPendingClarifications } from '../lib/downtimeDetector';
+import { incrementThemeMetric } from '../lib/themeUnlocks';
+import Constants from 'expo-constants';
 
 const BIOMETRIC_EMAIL_KEY = 'tether_bio_email';
 const BIOMETRIC_PASS_KEY = 'tether_bio_pass';
@@ -68,6 +70,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [healthData, setHealthData] = useState<HealthData>(null);
   const [goalUnlockReady, setGoalUnlockReady] = useState(false);
 
+
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
@@ -115,62 +119,70 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     checkAndSendPendingClarifications(userId);
   }
 
-  async function syncHealthData(userId: string, currentProfile?: User) {
-    try {
-      const data = await getAllHealthData();
-      if (!data) return;
-      setHealthData(data);
+async function syncHealthData(userId: string, currentProfile?: User) {
+  try {
+    const data = await getAllHealthData();
+    if (!data) return;
 
-      // Persist to Supabase for fitness-engine context
-      const { data: snapshot } = await supabase.from('user_context_snapshots')
-        .select('snapshot')
-        .eq('user_id', userId)
-        .order('computed_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    setHealthData(data);
 
-      const context = snapshot?.snapshot;
-      if (context) {
-        const updates: Partial<User> = {};
-        const unlocked = new Set(currentProfile?.unlocked_themes ?? ['iron']);
+    const { data: snapshot } = await supabase.from('user_context_snapshots')
+      .select('snapshot')
+      .eq('user_id', userId)
+      .order('computed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-        // Performance Unlocks
-        if (context.consistency?.isConsistent && !currentProfile?.goal_unlocked && !currentProfile?.consistency_unlocked_at) {
-          await checkGoalUnlock(userId);
-        }
+    const context = snapshot?.snapshot;
+    if (context) {
+      const updates: Partial<User> = {};
+      const unlocked = new Set(currentProfile?.unlocked_themes ?? ['iron']);
 
-        // Trait-based Unlocks
-        if (context.prsLast14d >= 3) unlocked.add('dragonfire'); // Intensity
-        if (context.avgBrainState7d >= 3.5) unlocked.add('arcane'); // Strategic/Focus
-        
-        // Check if unlocked set changed
-        if (unlocked.size !== (currentProfile?.unlocked_themes?.length ?? 0)) {
-          updates.unlocked_themes = Array.from(unlocked);
-        }
-
-        if (Object.keys(updates).length > 0) {
-          await supabase.from('user_profiles').update(updates).eq('id', userId);
-          refreshUser();
-        }
+      if (context.consistency?.isConsistent && !currentProfile?.goal_unlocked && !currentProfile?.consistency_unlocked_at) {
+        await checkGoalUnlock(userId);
       }
 
-      await supabase.from('health_snapshots').upsert({
-        user_id: userId,
-        date: new Date().toISOString().split('T')[0],
-        sleep_hours: data.sleep?.hours ?? null,
-        sleep_start: data.sleep?.startTime ?? null,
-        sleep_end: data.sleep?.endTime ?? null,
-        resting_hr: data.restingHR ?? null,
-        avg_hr: data.avgHR ?? null,
-        hrv_ms: data.hrv ?? null,
-        steps: data.steps ?? null,
-      }, { onConflict: 'user_id,date' });
-    } catch {
-      // Health Connect unavailable — not a blocking error
+      if (context.prsLast14d >= 3) unlocked.add('dragonfire');
+      if (context.avgBrainState7d >= 3.5) unlocked.add('arcane');
+
+      if (unlocked.size !== (currentProfile?.unlocked_themes?.length ?? 0)) {
+        updates.unlocked_themes = Array.from(unlocked);
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await supabase.from('user_profiles').update(updates).eq('id', userId);
+        refreshUser();
+      }
     }
+
+    await supabase.from('health_snapshots').upsert({
+      user_id: userId,
+      date: new Date().toISOString().split('T')[0],
+      sleep_hours: data.sleep?.hours ?? null,
+      sleep_start: data.sleep?.startTime ?? null,
+      sleep_end: data.sleep?.endTime ?? null,
+      resting_hr: data.restingHR ?? null,
+      avg_hr: data.avgHR ?? null,
+      hrv_ms: data.hrv ?? null,
+      steps: data.steps ?? null,
+    }, { onConflict: 'user_id,date' });
+    incrementThemeMetric(userId, 'wearable_consistency').catch(() => {});
+  } catch (e) {
+    console.warn('Health Connect unavailable or failed to sync data. Not a blocking error.', e);
+  }
+}
+
+  function isExpoGo() {
+    return Constants.expoGoConfig !== null;
   }
 
   async function registerPushToken(userId: string) {
+    // Skip entirely inside Expo Go
+    if (isExpoGo()) {
+      console.log('Skipping push token registration in Expo Go');
+      return;
+    }
+
     try {
       // Only register if permission already granted — never prompt during auth flow
       const { status } = await Notifications.getPermissionsAsync();

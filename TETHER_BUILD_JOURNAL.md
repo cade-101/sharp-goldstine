@@ -30,6 +30,7 @@
 - Rule 5: Update the journal at the end of every session.
 
 **Known correct solutions:**
+- **ANDROID_HOME not set in non-interactive shell → Gradle can't find SDK:** Always run `ANDROID_HOME=~/Library/Android/sdk eas build --platform android --profile preview --local` — the env var is set in .zshrc but not exported to subshells. (confirmed Session 38)
 - Expo SDK mismatch → `npx expo install expo@latest --fix` → `npm install --legacy-peer-deps` → `npx expo start --clear`
 - EMFILE too many open files → `brew install watchman` — one time, done forever
 - npm peer conflicts → always `--legacy-peer-deps`
@@ -1326,11 +1327,53 @@ ANDROID_HOME=~/Library/Android/sdk JAVA_HOME=/opt/homebrew/opt/openjdk@17 eas bu
 - ✅ **Shopping List Pantry Sync**: `ShoppingList.tsx` now correctly surfaces "Running Low" items from `pantry_items` by checking `estimated_empty_at` and recent purchase frequency.
 - ✅ **Theme Icon Map**: Verified and finalized tab bar icons/labels for all 8 war themes (Ember, Ronin, Valkyrie, etc.).
 
+### Session 33 — April 1, 2026
+**Shadow theme + Theme Intensity System + Hidden Era Unlock System**
+
+**App.tsx confirmed current:**
+- Deep link parsing for `tether://join` and Spotify callbacks
+- Notification response listener for clarify_transfer interactive pushes
+- AppState listener → checkAndSendPendingClarifications on foreground
+- Full tab icon/label map for all themes including SHADOW default
+
+**Shadow theme + intensity system:**
+- ✅ `src/themes/shadow.ts` — SHADOW tokens (neutral default, not user-selectable)
+- ✅ `src/themes/index.ts` — updated registry: SHADOW default, VALKYRIE admin-only, 8 selectable themes
+- ✅ `src/lib/themeIntensity.ts` — 11 intensity states + modifiers
+- ✅ `src/hooks/useThemeIntensity.ts` — per-module intensity hook
+- ✅ `src/components/ShadowThemeUnlock.tsx` — ERA UNLOCKED split-screen animation
+- ✅ UserContext patched — `getTheme(user?.theme ?? null)`, `isDefaultTheme` exported
+- ✅ Intensity wired: WorkdayRhythm / BudgetTracker / FitnessScreen
+
+**Hidden Era Unlock System:**
+
+| Era | Bridge | Metric | Target | Bridge Days |
+|-----|--------|--------|--------|-------------|
+| MARAUDER | DUSTMARK | workout_days | 21 | 3 |
+| BLACKTIDE | LOWTIDE | budget_days + save_decisions | 14+5 | 3 |
+| FROSTBORN | THAWLINE | weekly_workout_streaks | 4 weeks | 4 |
+| MIMIC | GLASSVEIL | module_days | 14 | 4 |
+| SYNTHRAID | STATICDRIFT | wearable_consistency | 21 | 5 |
+
+- Locked: blacked-out "[CLASSIFIED ERA]" card, requirement + progress visible, name hidden
+- Bridge: "UNKNOWN ERA // SIGNAL FORMING" + teaser modal "NEW ERA DETECTED"
+- Unlocked: full theme selectable, ERA UNLOCKED animation plays
+- 10 new theme token files (5 full eras + 5 bridge partials)
+- `src/lib/themeUnlocks.ts` — all helper functions + types
+- `user_profiles.theme_progress jsonb` — persisted to Supabase
+
+```sql
+alter table user_profiles 
+add column if not exists theme_progress jsonb default '{}';
+```
+
 ### Immediate (next build session)
-1. **Goal unlock flow** — consistency detection fires push, War Room goal card appears.
-2. **Macro tiers** — protein-only unlocks after goal set.
-3. **"Thinking of You" button** — library implementation.
-4. **Spotify Full Test** — wire and test full OAuth flow with Client ID.
+1. **Goal unlock flow** — consistency detection fires push, War Room goal card with progress bar
+2. **Macro tiers** — protein-only unlocks after goal set, full macros behind manual toggle
+3. **Hidden era progress tracking** — wire logEvent calls to feed themeUnlocks.ts metric counters
+4. **iOS TestFlight prep** — Apple Developer account + `eas build --platform ios`
+5. **RevenueCat** — free trial + subscription tiers before public beta
+6. **Spotify full test** — OAuth end-to-end
 
 ### Architecture (before public launch)
 - **SPECTRELABS_ETHICS_KEY** — add to codebase. Feu Follet commitment 03.
@@ -3009,5 +3052,216 @@ ANDROID_HOME=~/Library/Android/sdk JAVA_HOME=/opt/homebrew/opt/openjdk@17 eas bu
 ```
 
 ---
+
+---
+
+## SESSION 35 — NATIVE CRASH FIX + HEALTH CONNECT PERMISSIONS MOVED TO SETTINGS
+*April 2, 2026*
+
+### Problem
+App crashing before JavaScript started. Metro showed nothing. Two root causes found:
+
+**1. import statements after executable code (WarRoom.tsx + FitnessScreen.tsx)**
+Hermes rejects `import` declarations that appear after executable statements (const declarations, function calls). Metro converts `import` to inline `require()` — when those appear after side-effectful code, Hermes throws a hard parse error before JS can start.
+
+- `WarRoom.tsx`: `GroceryNudgeCard`, `Blitz`, `ShoppingList`, `Pantry`, `Calendar` imports were after `const MISSIONS_KEY` and `const MISSIONS_DATE_KEY`. Fixed: moved all imports above the constants.
+- `FitnessScreen.tsx`: `import { ThemeTokens }` appeared after `WebBrowser.maybeCompleteAuthSession()`. Fixed: moved import above the call.
+
+**2. Health Connect `requestPermission` crashing on startup**
+`initHealthConnect()` was calling `requestPermission(...)` on app load (from a useEffect). The library's `launchPermissionsDialog` registers an `ActivityResultLauncher` — this must be done before the Activity reaches RESUMED state. A useEffect fires after RESUMED, so the native Kotlin coroutine throws and JS can't catch it.
+
+**Fix:** Removed `requestPermission` from `initHealthConnect()`. Replaced with `getGrantedPermissions()` (read-only, safe to call anytime). Permission request moved to an explicit user action in Settings.
+
+**Also fixed:** Added Expo Go guard in `healthConnect.ts` `getHC()` — checks `Constants.appOwnership === 'expo'` and returns null, preventing native module load in Expo Go.
+
+### Changes
+- `src/screens/WarRoom.tsx` — imports reordered above constants
+- `src/screens/FitnessScreen.tsx` — `ThemeTokens` import moved above `maybeCompleteAuthSession()`
+- `src/lib/healthConnect.ts`:
+  - `getHC()`: added Expo Go bail-out via `expo-constants`
+  - `initHealthConnect()`: removed `requestPermission`, now uses `getGrantedPermissions()`
+  - Added `requestHealthPermissions()` — safe to call from button press only
+  - Added `checkHealthPermissions()` — lightweight permission status check
+- `src/screens/SettingsScreen.tsx`:
+  - Added HEALTH CONNECT section (Android only)
+  - Shows GRANTED / NOT GRANTED status on mount
+  - GRANT ACCESS button calls `requestHealthPermissions()` — explicit user action
+
+### ⚠️ LESSON — HEALTH CONNECT PERMISSIONS
+> Never call `requestPermission` on app startup or in a `useEffect`.
+> It registers an `ActivityResultLauncher` which must be set up before Activity RESUMED.
+> Always gate it behind a user-initiated button press.
+
+---
+
+## SESSION 36 — FITNESS PROGRESSION ENGINE: GOAL UNLOCK + MACRO TIERS
+*April 2, 2026*
+
+### What was already done (Session 31)
+- ✅ Consistency detection in `fitness-engine` getUserContext()
+- ✅ Sneaky cardio in every workout (avoidant users get "Pump-up circuit" / "Finisher", D gets correct labels)
+- ✅ Supabase tables: `user_goals`, `nutrition_logs`, `user_profiles.macro_tier/goal_unlocked/consistency_unlocked_at`
+
+### What was built this session
+
+**Goal unlock moment (WarRoom.tsx)**
+- Full-screen modal replaces the basic centered modal
+- Hero: "YOU'VE BEEN SHOWING UP." with session count from consistency snapshot
+- Personalized goal options loaded from `loadGoalOptions()`:
+  - Strength goal: pulls top exercise from `user_context_snapshots.snapshot.topExercisesLast14d`, queries `exercise_performance` for current PR, calculates target at 120% rounded to nearest 25lbs/10kg
+  - Cardio: "Run a 5K"
+  - Bodyweight: "Hit 10 pull-ups unbroken"
+  - "Something else →" → free-text input → saves as custom type
+- On selection: saves to `user_goals` with type/target_value/target_unit/target_date, sets `macro_tier = 1`, `goal_unlocked = true`
+
+**TARGET ACQUIRED card (WarRoom.tsx)**
+- Sits inside the existing goal card, below the rank/progress bar section
+- Shows goal text + target date
+- Strength goals show progress bar: current_value → target_value (auto-updates as PRs are logged)
+
+**FUEL TARGET section (WarRoom.tsx)**
+- Appears between BRAIN STATE and HYDRATION when `macro_tier >= 1`
+- Protein goal calculated from sessions last 30 days: <6→120g, 6+→140g, 10+→160g, 16+→180g
+- `macro_tier >= 2`: also shows calorie estimate (2200/2500/2800 by activity level)
+- Daily check-in: Crushed it / Pretty close / Not great / Skip
+- Saves to `nutrition_logs` with estimated protein_g (100%/80%/50% of goal)
+- Persists check-in for the day; shows UNDO if already logged
+
+**NUTRITION section (SettingsScreen.tsx)**
+- Appears only when `macro_tier >= 1`
+- Shows current tracking level (PROTEIN ONLY / PROTEIN + CALORIES / FULL MACROS)
+- "ADD CALORIE AWARENESS" button appears after 3 weeks on tier 1 (checks `consistency_unlocked_at`)
+- "Open full macro tracking" → ENABLE button prompts confirmation before setting `macro_tier = 3`
+- Never auto-suggested more than once (button only shows if not already on tier 3)
+
+### Protein target logic
+```
+sessions last 30d  →  protein goal
+0–5                →  120g
+6–9                →  140g
+10–15              →  160g
+16+                →  180g
+```
+
+### ⚠️ LESSON — GOAL PERSONALIZATION
+> Pull top exercise from `user_context_snapshots.snapshot.topExercisesLast14d[0]`
+> then query `exercise_performance` for that user's max weight on that exercise.
+> Target = ceil(current * 1.2) rounded up to nearest 25lbs / 10kg.
+> If no snapshot or no PR exists → skip strength option, show cardio + bodyweight only.
+
+---
+
+## SESSION 37 — THEME REVEAL (ThemeReveal.tsx)
+*April 3, 2026*
+**APK:** `build-1775204519523.apk`
+
+### What was built
+**Universal half-and-half theme reveal for every theme switch.**
+
+Previously the era unlock animation only fired when leaving SHADOW for the first time. Now every theme tap — including switching between unlocked themes — plays the split reveal.
+
+**`src/components/ThemeReveal.tsx`** (new, canonical)
+- Left half: previous theme colours (bg, accent, name)
+- Right half: new theme colours
+- Hold for 800ms so user sees both sides clearly
+- New theme bleeds left across old panel in 300ms
+- Theme name slams in (spring animation) with tagline
+- TAP TO CONTINUE fades in after 600ms
+- Per-theme copy table: `REVEAL_COPY` — covers all 10 selectable themes + 5 bridge themes
+- `revealLabel` prop overrides the label (for bridge/SIGNAL FORMING states)
+
+**`src/components/ShadowThemeUnlock.tsx`** — now a re-export shim pointing to `ThemeReveal`. Backward compatible, nothing else needs to change.
+
+**`src/screens/SettingsScreen.tsx`**
+- Removed `isDefaultTheme` from destructure (no longer needed — reveal fires every time)
+- `handleChangeTheme()` captures `previousTheme` before updating, then always sets `showEraUnlock = true`
+- JSX updated: `ShadowThemeUnlock` → `ThemeReveal` with `previousTheme` prop
+
+---
+
+## SESSION 39 — HEALTH CONNECT PERMISSION CRASH FIX
+*April 3, 2026*
+**APK:** pending
+
+### Problem
+Pressing GRANT ACCESS in Settings crashed the app. `requestPermission()` from `react-native-health-connect` uses an `ActivityResultLauncher` that must be registered before `onStart()`. Calling it from a button press (after `onResume`) throws on the native Kotlin coroutine thread — uncatchable from JS.
+
+### Fix
+**`src/lib/healthConnect.ts`**
+- `requestHealthPermissions()` now calls `lib.openHealthConnectSettings()` instead of `lib.requestPermission()`
+- Opens the Health Connect app directly — user grants permissions there
+- Returns `void` (no longer returns a boolean)
+- Removed unused `HEALTH_PERMISSIONS` constant
+
+**`src/screens/SettingsScreen.tsx`**
+- Added `AppState` listener — when user returns from HC settings (`background → active`), calls `checkHealthPermissions()` and updates state automatically
+- `handleRequestHealthPerms()` is now synchronous — just opens HC settings and sets spinner; spinner clears on AppState return
+
+### ⚠️ LESSON — HEALTH CONNECT requestPermission
+> `requestPermission()` crashes on ANY call after Activity onStart, even from a button.
+> The ActivityResultLauncher must be registered during onCreate/onStart.
+> The only safe approach: `openHealthConnectSettings()` + AppState listener to catch the return.
+> Never use `requestPermission()` directly.
+
+### Standing rule for builds
+> Update the journal **and** build an APK after every session.
+> If the new build crashes, the previous APK is the rollback. Work from there.
+
+---
+
+## SESSION 38 — BACKEND FOUNDATION (overnight)
+*April 2–3, 2026*
+**APK:** `build-1775245694775.apk`
+
+### SQL migrations applied
+- `add_theme_progress_to_user_profiles` — `user_profiles.theme_progress jsonb DEFAULT '{}'`
+- `add_crash_level_to_user_context_snapshots` — `user_context_snapshots.crash_level text DEFAULT 'nominal'`
+- `create_habit_tracking` — `habit_tracking` table with RLS
+- `create_debt_accounts` — `debt_accounts` table with RLS
+
+### Edge functions deployed (verify_jwt: false)
+- `pattern-engine` — 14-day behavioral matrix → Anthropic → pattern insights → upsert to `user_context_snapshots`
+- `snowball-engine` — trigger: payday/weekly/manual → Anthropic → ONE financial action → push notification
+- `buffer-engine` — bills due in 48hrs → account balance check → push "⚠️ Transfer needed"
+
+### New lib files (all non-blocking, try/catch throughout)
+- `src/lib/themeUnlocks.ts` — `HIDDEN_THEME_CONFIGS` (5 eras), `incrementThemeMetric()`, `getThemeProgress()`
+- `src/lib/goalEngine.ts` — `checkGoalUnlock()`, `generateGoalOptions()`, `updateGoalProgress()`
+- `src/lib/macroEngine.ts` — `checkMacroTierUnlock()`, `getDailyProteinTarget()`, `getDailyCalorieTarget()`, `logNutrition()`
+- `src/lib/crashDetector.ts` — `assessCrashLevel()` scoring (nominal/watch/crash/critical), `getCrashResponse()`, `getTodayScienceCard()`
+- `src/lib/habitEngine.ts` — tier 1/2/3 habit ladder, `getCurrentHabit()`, `logHabitComplete()`
+- `src/lib/patternEngine.ts` — `computeWeeklyPatterns()` (fires if >7d since last run)
+- `src/lib/purchases.ts` — RevenueCat skeleton (dynamic import, TODO: real API key)
+
+### Theme metric call sites wired
+| Event | File | Metric |
+|---|---|---|
+| intel_drop | WarRoom.tsx:511 | module_days |
+| intel_text | WarRoom.tsx:567 | module_days |
+| drink_logged | WarRoom.tsx:618 | module_days |
+| brain_state_set | WarRoom.tsx:637 | module_days |
+| blitz_start | Blitz.tsx:251 | module_days |
+| session_start | FitnessScreen.tsx:606 | workout_days |
+| health sync complete | UserContext.tsx:168 | wearable_consistency |
+| expense logged | BudgetTracker.tsx:324 | budget_days |
+
+### Hidden era system
+5 eras unlock via consistent behaviour (all locked by default):
+- MARAUDER (DUSTMARK bridge) — 21 workout days
+- BLACKTIDE (LOWTIDE bridge) — 14 budget days
+- FROSTBORN (THAWLINE bridge) — 28 workout days
+- MIMIC (GLASSVEIL bridge) — 14 module days
+- SYNTHRAID (STATICDRIFT bridge) — 21 wearable consistency days
+
+### ⚠️ LESSON — SCIENCE CARDS
+> `SCIENCE_CARDS_ENABLED = false` in crashDetector.ts pending clinical review by CJ's mom.
+> Do not enable without review. The system is built; the switch just needs to be flipped.
+
+### Pending
+- Wire `checkGoalUnlock` into UserContext post-workout
+- Wire `checkMacroTierUnlock` into UserContext post-goal-set
+- Wire `assessCrashLevel` into UserContext post-health-sync
+- Wire `computeWeeklyPatterns` on app open if >7d since last
+- Install `react-native-purchases` when RevenueCat account is set up
 
 *To resume in a new chat: upload this file and say "Resume Tether build"*

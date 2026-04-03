@@ -5,6 +5,12 @@ let hc: typeof import('react-native-health-connect') | null = null;
 
 async function getHC() {
   if (Platform.OS !== 'android') return null;
+
+  // Expo Go cannot load native modules — skip entirely
+  const Constants = require('expo-constants');
+  const isExpoGo = Constants.default?.appOwnership === 'expo';
+  if (isExpoGo) return null;
+
   if (!hc) hc = await import('react-native-health-connect');
   return hc;
 }
@@ -13,20 +19,22 @@ export async function initHealthConnect(): Promise<boolean> {
   const lib = await getHC();
   if (!lib) return false;
   try {
+    // Must check availability before initialize() — calling initialize() when
+    // Health Connect is not installed throws on the native Kotlin coroutine
+    // before JS can catch it, crashing the app.
+    const status = await lib.getSdkStatus();
+    if (status !== lib.SdkAvailabilityStatus.SDK_AVAILABLE) return false;
+
     const initialized = await lib.initialize();
     if (!initialized) return false;
 
-    const granted = await lib.requestPermission([
-      { accessType: 'read', recordType: 'SleepSession' },
-      { accessType: 'read', recordType: 'HeartRate' },
-      { accessType: 'read', recordType: 'HeartRateVariabilityRmssd' },
-      { accessType: 'read', recordType: 'Steps' },
-      { accessType: 'read', recordType: 'ActiveCaloriesBurned' },
-      { accessType: 'read', recordType: 'RestingHeartRate' },
-    ]);
-
-    return Array.isArray(granted) ? granted.length > 0 : !!granted;
-  } catch {
+    // DO NOT call requestPermission here — it crashes on the native Kotlin thread
+    // when called after Activity resume (ActivityResultLauncher lifecycle violation).
+    // Check existing permissions only. Request happens via button in Settings.
+    const granted = await lib.getGrantedPermissions();
+    return Array.isArray(granted) && granted.length > 0;
+  } catch (e) {
+    console.warn('Health Connect unavailable:', e);
     return false;
   }
 }
@@ -154,18 +162,53 @@ export async function getRestingHR(): Promise<number | null> {
 }
 
 export async function getAllHealthData() {
-  const granted = await initHealthConnect();
-  if (!granted) return null;
+  try {
+    const granted = await initHealthConnect();
+    if (!granted) return null;
 
-  const [sleep, avgHR, hrv, steps, restingHR] = await Promise.all([
-    getLastNightSleep(),
-    getTodayHR(),
-    getLatestHRV(),
-    getTodaySteps(),
-    getRestingHR(),
-  ]);
+    const [sleep, avgHR, hrv, steps, restingHR] = await Promise.all([
+      getLastNightSleep(),
+      getTodayHR(),
+      getLatestHRV(),
+      getTodaySteps(),
+      getRestingHR(),
+    ]);
 
-  return { sleep, avgHR, hrv, steps, restingHR };
+    return { sleep, avgHR, hrv, steps, restingHR };
+  } catch (e) {
+    console.warn('Health Connect hard fail:', e);
+    return null;
+  }
 }
 
 export type HealthData = Awaited<ReturnType<typeof getAllHealthData>>;
+
+
+/**
+ * Opens the Health Connect settings screen where the user grants permissions manually.
+ * Does NOT use requestPermission() — that API crashes on many devices due to
+ * ActivityResultLauncher lifecycle constraints (must register before onStart).
+ * After the user returns to the app, call checkHealthPermissions() to read the result.
+ */
+export async function requestHealthPermissions(): Promise<void> {
+  const lib = await getHC();
+  if (!lib) return;
+  try {
+    const status = await lib.getSdkStatus();
+    if (status !== lib.SdkAvailabilityStatus.SDK_AVAILABLE) return;
+    lib.openHealthConnectSettings();
+  } catch (e) {
+    console.warn('Could not open Health Connect settings:', e);
+  }
+}
+
+export async function checkHealthPermissions(): Promise<boolean> {
+  const lib = await getHC();
+  if (!lib) return false;
+  try {
+    const granted = await lib.getGrantedPermissions();
+    return Array.isArray(granted) && granted.length > 0;
+  } catch {
+    return false;
+  }
+}

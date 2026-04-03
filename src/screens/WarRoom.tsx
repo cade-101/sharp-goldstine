@@ -13,14 +13,15 @@ import { sendPushNotification } from '../lib/sendPushNotification';
 import { ANTHROPIC_API_KEY } from '../lib/config';
 import { logEvent } from '../lib/logEvent';
 import { callEdgeFunction } from '../lib/callEdgeFunction';
-
-const MISSIONS_KEY = 'warroom_missions';
-const MISSIONS_DATE_KEY = 'warroom_missions_date';
+import { incrementThemeMetric } from '../lib/themeUnlocks';
 import { GroceryNudgeCard } from '../components/GroceryNudgeCard';
 import Blitz from './Blitz';
 import ShoppingList from './ShoppingList';
 import Pantry from './Pantry';
 import * as Calendar from 'expo-calendar';
+
+const MISSIONS_KEY = 'warroom_missions';
+const MISSIONS_DATE_KEY = 'warroom_missions_date';
 
 // ── BRAIN STATE ───────────────────────────────────────────────────────────────
 const BRAIN_STATES = [
@@ -168,9 +169,16 @@ export default function WarRoom() {
   const [showSupplyRun, setShowSupplyRun] = useState(false);
   const [showPantry, setShowPantry] = useState(false);
 
-  // Water tracker
+  // Goal unlock
   const [showGoalSelector, setShowGoalSelector] = useState(false);
   const [selectingGoal, setSelectingGoal] = useState(false);
+  const [activeGoal, setActiveGoal] = useState<{ id: string; goal_text: string; goal_type: string; target_value: number | null; target_unit: string | null; target_date: string | null; current_value: number | null } | null>(null);
+  const [goalOptions, setGoalOptions] = useState<Array<{ icon: string; text: string; type: string; target_value?: number; target_unit?: string; target_date?: string }>>([]);
+  const [customGoalText, setCustomGoalText] = useState('');
+  const [showCustomGoal, setShowCustomGoal] = useState(false);
+
+  // Nutrition check-in
+  const [todayNutritionCheck, setTodayNutritionCheck] = useState<string | null>(null);
 
   const [waterLog, setWaterLog] = useState<Array<{ id: string; amount_ml: number; container: string; drink_type: string; logged_at: string }>>([]);
   const [showContainerPicker, setShowContainerPicker] = useState(false);
@@ -247,10 +255,95 @@ export default function WarRoom() {
     loadPartner();
     loadNudges();
     loadCalendar();
-  }, [user?.house_name, user?.id, user?.goal_unlocked, user?.rank]));
+    loadConsistencyData();
+    loadActiveGoal();
+    if (goalUnlockReady && !user?.goal_unlocked) loadGoalOptions();
+    // Load today's nutrition check-in
+    if (user?.id && (user?.macro_tier ?? 0) >= 1) {
+      const today = new Date().toISOString().split('T')[0];
+      supabase.from('nutrition_logs')
+        .select('log_level')
+        .eq('user_id', user.id)
+        .eq('date', today)
+        .maybeSingle()
+        .then(({ data }) => setTodayNutritionCheck(data?.log_level ?? null));
+    }
+  }, [user?.house_name, user?.id, user?.goal_unlocked, user?.rank, user?.macro_tier, goalUnlockReady]));
 
   async function loadConsistency() {
     if (user?.id) loadConsistencyData();
+  }
+
+  async function loadActiveGoal() {
+    if (!user?.id) return;
+    const { data } = await supabase
+      .from('user_goals')
+      .select('id, goal_text, goal_type, target_value, target_unit, target_date, current_value')
+      .eq('user_id', user.id)
+      .eq('achieved', false)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setActiveGoal(data ?? null);
+  }
+
+  async function loadGoalOptions() {
+    if (!user?.id) return;
+    const weightUnit = user?.weight_unit ?? 'lbs';
+
+    // Pull top exercise from context snapshot
+    const { data: snap } = await supabase
+      .from('user_context_snapshots')
+      .select('snapshot')
+      .eq('user_id', user.id)
+      .order('computed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const topExercise: string | null = snap?.snapshot?.topExercisesLast14d?.[0] ?? null;
+
+    // Get current PR for that exercise
+    let strengthOption: { icon: string; text: string; type: string; target_value: number; target_unit: string; target_date: string } | null = null;
+    if (topExercise) {
+      const { data: prRow } = await supabase
+        .from('exercise_performance')
+        .select('weight')
+        .eq('user_id', user.id)
+        .eq('exercise_name', topExercise)
+        .order('weight', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (prRow?.weight) {
+        const current = prRow.weight as number;
+        // Round target up to next clean milestone
+        const increment = weightUnit === 'kg' ? 10 : 25;
+        const target = Math.ceil((current * 1.2) / increment) * increment;
+        const targetDate = new Date();
+        targetDate.setMonth(targetDate.getMonth() + 3);
+        const monthName = targetDate.toLocaleString('default', { month: 'long' });
+        strengthOption = {
+          icon: '⬆️',
+          text: `${topExercise} ${target}${weightUnit} by ${monthName}`,
+          type: 'strength',
+          target_value: target,
+          target_unit: weightUnit,
+          target_date: targetDate.toISOString().split('T')[0],
+        };
+      }
+    }
+
+    const threeMonths = new Date();
+    threeMonths.setMonth(threeMonths.getMonth() + 3);
+    const targetDateStr = threeMonths.toISOString().split('T')[0];
+
+    const options = [
+      ...(strengthOption ? [strengthOption] : []),
+      { icon: '🏃', text: 'Run a 5K', type: 'cardio', target_value: 5, target_unit: 'km', target_date: targetDateStr },
+      { icon: '💪', text: 'Hit 10 pull-ups unbroken', type: 'bodyweight', target_value: 10, target_unit: 'reps', target_date: targetDateStr },
+      { icon: '🎯', text: 'Something else →', type: 'custom' },
+    ];
+    setGoalOptions(options);
   }
 
   async function loadConsistencyData() {
@@ -416,6 +509,7 @@ export default function WarRoom() {
       const summary = parts.length ? `✓ ${parts.join(' · ')}${data.store ? ` from ${data.store}` : ''}` : '✓ Filed';
       setIntelQueue(q => q.map(i => i.id === queueId ? { ...i, status: 'done', summary } : i));
       logEvent(user.id, 'intel_drop', { store: data.store, items_logged: data.itemsLogged });
+      incrementThemeMetric(user.id, 'module_days').catch(() => {});
     } catch {
       setIntelQueue(q => q.map(i => i.id === queueId ? { ...i, status: 'failed', summary: 'Failed — will retry' } : i));
     }
@@ -472,6 +566,7 @@ export default function WarRoom() {
         const summary = parts.length ? `✓ ${parts.join(' · ')}` : '✓ Filed';
         setIntelQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'done', summary } : i));
         logEvent(user.id, 'intel_text', { items: data.itemsLogged });
+        incrementThemeMetric(user.id, 'module_days').catch(() => {});
       } catch {
         setIntelQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'failed', summary: 'Failed' } : i));
       }
@@ -522,6 +617,7 @@ export default function WarRoom() {
     const totalMl = newLog.reduce((sum, e) => sum + e.amount_ml, 0);
     await supabase.from('health_snapshots').upsert({ user_id: user.id, date: today, water_ml: totalMl }, { onConflict: 'user_id,date' });
     logEvent(user.id, 'drink_logged', { drink_type: c.type, amount_ml: c.ml, container: containerKey });
+    incrementThemeMetric(user.id, 'module_days').catch(() => {});
   }
 
   async function undoLastWater() {
@@ -541,6 +637,7 @@ export default function WarRoom() {
       captured_at: new Date().toISOString(),
     });
     logEvent(user.id, 'brain_state_set', { state });
+    incrementThemeMetric(user.id, 'module_days').catch(() => {});
     if (state === 'emergency' && partner?.id) {
       sendPushNotification(
         partner.id,
@@ -605,39 +702,148 @@ export default function WarRoom() {
   const userRank = user?.rank ?? 1;
   const themeBadge = (user?.theme ?? 'iron').toUpperCase();
 
-  async function handleSetGoal(goalText: string) {
+  async function handleSetGoal(option: { text: string; type: string; target_value?: number; target_unit?: string; target_date?: string }) {
     if (!user?.id) return;
     setSelectingGoal(true);
     await supabase.from('user_goals').insert({
       user_id: user.id,
-      goal_text: goalText,
-      target_value: 1, // Placeholder
+      goal_text: option.text,
+      goal_type: option.type,
+      target_value: option.target_value ?? null,
+      target_unit: option.target_unit ?? null,
+      target_date: option.target_date ?? null,
+      current_value: null,
     });
     await supabase.from('user_profiles').update({ macro_tier: 1, goal_unlocked: true }).eq('id', user.id);
     await refreshUser();
+    await loadActiveGoal();
     setSelectingGoal(false);
-    setShowGoalSelector(false);
+    setCustomGoalText('');
+    setShowCustomGoal(false);
+  }
+
+  async function logNutritionCheck(level: 'crushed' | 'close' | 'missed') {
+    if (!user?.id) return;
+    const today = new Date().toISOString().split('T')[0];
+    const proteinGoal = getProteinGoal();
+    const proteinMap = { crushed: proteinGoal, close: Math.round(proteinGoal * 0.8), missed: Math.round(proteinGoal * 0.5) };
+    await supabase.from('nutrition_logs').upsert({
+      user_id: user.id,
+      date: today,
+      protein_g: proteinMap[level],
+      log_level: level,
+    }, { onConflict: 'user_id,date' });
+    setTodayNutritionCheck(level);
+  }
+
+  function getProteinGoal(): number {
+    const sessions = consistency?.last30Days ?? 0;
+    if (sessions >= 16) return 180;
+    if (sessions >= 10) return 160;
+    if (sessions >= 6) return 140;
+    return 120;
+  }
+
+  function getCalorieGoal(): number {
+    const sessions = consistency?.last30Days ?? 0;
+    if (sessions >= 16) return 2800;
+    if (sessions >= 10) return 2500;
+    return 2200;
   }
 
   return (
     <SafeAreaView style={s.safe}>
-        {/* ── GOAL UNLOCK PROMPT ──────────────────────────────────────────────── */}
+        {/* ── GOAL UNLOCK MOMENT ──────────────────────────────────────────────── */}
         {goalUnlockReady && !user?.goal_unlocked && (
-          <Modal visible={true} animationType="slide">
-            <View style={[s.center, { flex: 1, backgroundColor: T.bg, padding: 30 }]}>
-              <Text style={{ fontSize: 40, marginBottom: 20 }}>🏆</Text>
-              <Text style={[s.goalValue, { textAlign: 'center', marginBottom: 10 }]}>YOU'VE BEEN SHOWING UP.</Text>
-              <Text style={[s.muted, { textAlign: 'center', marginBottom: 30 }]}>Consistency unlocked. Time to pick a target.</Text>
-              
-              {['Hit a 225lb Bench Press', 'Run a local 5K', '7 Days of perfect hydration'].map(g => (
-                <TouchableOpacity 
-                  key={g} 
-                  style={[s.intelBtn, { width: '100%', marginBottom: 12 }]}
-                  onPress={() => handleSetGoal(g)}
-                >
-                  <Text style={s.intelLabel}>{g.toUpperCase()}</Text>
-                </TouchableOpacity>
-              ))}
+          <Modal visible={true} animationType="fade" statusBarTranslucent>
+            <View style={{ flex: 1, backgroundColor: T.bg }}>
+              <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+                {/* Hero */}
+                <View style={{ paddingHorizontal: 28, paddingTop: 80, paddingBottom: 32, borderBottomWidth: 1, borderBottomColor: T.border }}>
+                  <Text style={{ fontSize: 11, color: T.accent, fontWeight: '800', letterSpacing: 4, marginBottom: 20 }}>
+                    CONSISTENCY UNLOCKED
+                  </Text>
+                  <Text style={{ fontSize: 34, fontWeight: '900', color: T.text, lineHeight: 40, letterSpacing: -0.5, marginBottom: 16 }}>
+                    YOU'VE BEEN{'\n'}SHOWING UP.
+                  </Text>
+                  <Text style={{ fontSize: 15, color: T.muted, lineHeight: 22 }}>
+                    {consistency?.last30Days ?? 0} sessions in the last month.{'\n'}Time to aim at something.
+                  </Text>
+                </View>
+
+                {/* Goal options */}
+                <View style={{ padding: 24, gap: 12 }}>
+                  <Text style={{ fontSize: 10, color: T.muted, fontWeight: '700', letterSpacing: 2, marginBottom: 4 }}>
+                    BASED ON YOUR LAST MONTH, YOU COULD:
+                  </Text>
+
+                  {goalOptions.filter(o => o.type !== 'custom').map(opt => (
+                    <TouchableOpacity
+                      key={opt.text}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 16,
+                        backgroundColor: T.card, borderWidth: 1.5, borderColor: T.border,
+                        borderRadius: 14, padding: 20,
+                        opacity: selectingGoal ? 0.5 : 1,
+                      }}
+                      onPress={() => handleSetGoal(opt)}
+                      disabled={selectingGoal}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={{ fontSize: 28 }}>{opt.icon}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 15, fontWeight: '700', color: T.text, lineHeight: 20 }}>
+                          {opt.text}
+                        </Text>
+                        {opt.target_date && (
+                          <Text style={{ fontSize: 11, color: T.muted, marginTop: 4, letterSpacing: 0.5 }}>
+                            Target: {new Date(opt.target_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                          </Text>
+                        )}
+                      </View>
+                      {selectingGoal ? <ActivityIndicator color={T.accent} /> : <Text style={{ color: T.accent, fontSize: 20 }}>›</Text>}
+                    </TouchableOpacity>
+                  ))}
+
+                  {/* Something else */}
+                  {!showCustomGoal ? (
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 16,
+                        borderWidth: 1, borderColor: T.border, borderStyle: 'dashed',
+                        borderRadius: 14, padding: 20,
+                      }}
+                      onPress={() => setShowCustomGoal(true)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={{ fontSize: 28 }}>🎯</Text>
+                      <Text style={{ flex: 1, fontSize: 15, fontWeight: '700', color: T.muted }}>Something else →</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={{ backgroundColor: T.card, borderWidth: 1.5, borderColor: T.accent, borderRadius: 14, padding: 20, gap: 12 }}>
+                      <Text style={{ fontSize: 11, color: T.accent, fontWeight: '800', letterSpacing: 2 }}>YOUR GOAL</Text>
+                      <TextInput
+                        style={{ fontSize: 15, color: T.text, borderBottomWidth: 1, borderBottomColor: T.border, paddingBottom: 8 }}
+                        value={customGoalText}
+                        onChangeText={setCustomGoalText}
+                        placeholder="e.g. Run a half marathon by October"
+                        placeholderTextColor={T.muted}
+                        autoFocus
+                        returnKeyType="done"
+                      />
+                      <TouchableOpacity
+                        style={{ backgroundColor: T.accent, borderRadius: 10, paddingVertical: 14, alignItems: 'center', opacity: customGoalText.trim() ? 1 : 0.4 }}
+                        onPress={() => customGoalText.trim() && handleSetGoal({ text: customGoalText.trim(), type: 'custom' })}
+                        disabled={!customGoalText.trim() || selectingGoal}
+                      >
+                        {selectingGoal
+                          ? <ActivityIndicator color={T.bg} />
+                          : <Text style={{ color: T.bg, fontWeight: '900', fontSize: 14, letterSpacing: 2 }}>SET THIS GOAL</Text>}
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              </ScrollView>
             </View>
           </Modal>
         )}
@@ -659,9 +865,10 @@ export default function WarRoom() {
           )}
         </View>
 
-        {/* ── GOAL CARD ───────────────────────────────────────────────────────── */}
+        {/* ── RANK + TARGET ACQUIRED ──────────────────────────────────────────── */}
         {user?.goal_unlocked && (
           <View style={s.goalCard}>
+            {/* Rank row */}
             <View style={s.goalHeader}>
               <View>
                 <Text style={s.goalLabel}>CURRENT RANK</Text>
@@ -673,23 +880,54 @@ export default function WarRoom() {
                 <Text style={s.rankBadgeText}>{userRank}</Text>
               </View>
             </View>
-            
+
             <View style={s.progressSection}>
               <View style={s.progressLabels}>
                 <Text style={s.nextRankLabel}>
-                  NEXT: {['RECRUIT', 'SOLDIER', 'VETERAN', 'ELITE', 'COMMANDER', 'LEGENDARY'][userRank] || 'MAX'}
+                  NEXT: {['SOLDIER', 'VETERAN', 'ELITE', 'COMMANDER', 'LEGENDARY', 'MAX'][userRank - 1] || 'MAX'}
                 </Text>
                 <Text style={s.progressText}>
                   {loadingConsistency ? '...' : `${consistency?.last30Days ?? 0} / 8 sessions`}
                 </Text>
               </View>
               <View style={s.progressBarBg}>
-                <View style={[
-                  s.progressBarFill, 
-                  { width: `${Math.min(((consistency?.last30Days ?? 0) / 8) * 100, 100)}%` }
-                ]} />
+                <View style={[s.progressBarFill, { width: `${Math.min(((consistency?.last30Days ?? 0) / 8) * 100, 100)}%` as any }]} />
               </View>
             </View>
+
+            {/* TARGET ACQUIRED */}
+            {activeGoal && (
+              <View style={s.targetCard}>
+                <Text style={s.targetLabel}>TARGET ACQUIRED</Text>
+                <Text style={s.targetText}>{activeGoal.goal_text}</Text>
+
+                {/* Strength goal progress */}
+                {activeGoal.goal_type === 'strength' && activeGoal.target_value && activeGoal.current_value != null && (
+                  <View style={{ marginTop: 10 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <Text style={{ fontSize: 11, color: T.muted }}>
+                        Current: {activeGoal.current_value}{activeGoal.target_unit}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: T.muted }}>
+                        {activeGoal.target_value - activeGoal.current_value}{activeGoal.target_unit} to go
+                      </Text>
+                    </View>
+                    <View style={s.progressBarBg}>
+                      <View style={[s.progressBarFill, {
+                        width: `${Math.min((activeGoal.current_value / activeGoal.target_value) * 100, 100)}%` as any,
+                        backgroundColor: T.green,
+                      }]} />
+                    </View>
+                  </View>
+                )}
+
+                {activeGoal.target_date && (
+                  <Text style={{ fontSize: 10, color: T.muted, marginTop: 8, letterSpacing: 1 }}>
+                    TARGET DATE: {new Date(activeGoal.target_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase()}
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
         )}
 
@@ -749,6 +987,64 @@ export default function WarRoom() {
             })}
           </View>
         </View>
+
+        {/* ── FUEL TARGET ──────────────────────────────────────────────────────── */}
+        {(user?.macro_tier ?? 0) >= 1 && (
+          <View style={s.section}>
+            <Text style={s.sectionLabel}>FUEL TARGET</Text>
+            <View style={s.fuelCard}>
+              <View style={s.fuelRow}>
+                <Text style={s.fuelMetric}>Protein</Text>
+                <Text style={s.fuelValue}>~{getProteinGoal()}g today</Text>
+              </View>
+              {(user?.macro_tier ?? 0) >= 2 && (
+                <View style={[s.fuelRow, { borderTopWidth: 1, borderTopColor: T.border, marginTop: 10, paddingTop: 10 }]}>
+                  <Text style={s.fuelMetric}>Calories</Text>
+                  <Text style={s.fuelValue}>~{getCalorieGoal().toLocaleString()} kcal</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Simple check-in */}
+            {todayNutritionCheck ? (
+              <View style={s.fuelCheckedRow}>
+                <Text style={{ fontSize: 13, color: T.green, fontWeight: '700', letterSpacing: 1 }}>✓ LOGGED</Text>
+                <TouchableOpacity onPress={() => setTodayNutritionCheck(null)}>
+                  <Text style={{ fontSize: 11, color: T.muted, letterSpacing: 1 }}>UNDO</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View>
+                <Text style={{ fontSize: 10, color: T.muted, letterSpacing: 2, marginBottom: 10, marginTop: 14 }}>
+                  HOW'D YOU DO TODAY?
+                </Text>
+                <View style={s.checkInRow}>
+                  {([
+                    { id: 'crushed' as const, label: 'Crushed it', color: T.green },
+                    { id: 'close' as const, label: 'Pretty close', color: T.accent },
+                    { id: 'missed' as const, label: 'Not great', color: T.muted },
+                  ]).map(btn => (
+                    <TouchableOpacity
+                      key={btn.id}
+                      style={[s.checkInBtn, { borderColor: btn.color }]}
+                      onPress={() => logNutritionCheck(btn.id)}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: btn.color, letterSpacing: 0.5 }}>
+                        {btn.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity
+                    style={[s.checkInBtn, { borderColor: 'transparent' }]}
+                    onPress={() => setTodayNutritionCheck('skip')}
+                  >
+                    <Text style={{ fontSize: 11, color: T.muted }}>Skip</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* ── HYDRATION ────────────────────────────────────────────────────────── */}
         {(() => {
@@ -1767,6 +2063,72 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+
+    // TARGET ACQUIRED card (inside goalCard)
+    targetCard: {
+      marginTop: 16,
+      paddingTop: 16,
+      borderTopWidth: 1,
+      borderTopColor: T.border,
+    },
+    targetLabel: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: T.green,
+      letterSpacing: 3,
+      marginBottom: 6,
+    },
+    targetText: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: T.text,
+      lineHeight: 20,
+    },
+
+    // FUEL TARGET card
+    fuelCard: {
+      backgroundColor: T.card,
+      borderWidth: 1,
+      borderColor: T.border,
+      borderRadius: 12,
+      padding: 16,
+    },
+    fuelRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    fuelMetric: {
+      fontSize: 13,
+      color: T.muted,
+      fontWeight: '600',
+      letterSpacing: 0.5,
+    },
+    fuelValue: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: T.text,
+      letterSpacing: 0.5,
+    },
+    fuelCheckedRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: 12,
+    },
+
+    // Nutrition check-in buttons
+    checkInRow: {
+      flexDirection: 'row',
+      gap: 8,
+      flexWrap: 'wrap',
+    },
+    checkInBtn: {
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      borderRadius: 20,
+      borderWidth: 1,
     },
   });
 }
