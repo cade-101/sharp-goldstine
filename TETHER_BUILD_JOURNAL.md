@@ -3181,7 +3181,7 @@ Previously the era unlock animation only fired when leaving SHADOW for the first
 
 ## SESSION 39 — HEALTH CONNECT PERMISSION CRASH FIX
 *April 3, 2026*
-**APK:** pending
+**APK:** `build-1775252481834.apk`
 
 ### Problem
 Pressing GRANT ACCESS in Settings crashed the app. `requestPermission()` from `react-native-health-connect` uses an `ActivityResultLauncher` that must be registered before `onStart()`. Calling it from a button press (after `onResume`) throws on the native Kotlin coroutine thread — uncatchable from JS.
