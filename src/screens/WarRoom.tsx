@@ -19,16 +19,22 @@ import Blitz from './Blitz';
 import ShoppingList from './ShoppingList';
 import Pantry from './Pantry';
 import * as Calendar from 'expo-calendar';
+import {
+  Zap, Target, Wind, AlertTriangle, ChevronRight,
+  Moon, Heart, Activity, Footprints,
+  Droplets, Coffee, Wine, GlassWater, Flame, Shield,
+  Timer, Dumbbell, Wallet, Settings2,
+} from 'lucide-react-native';
 
 const MISSIONS_KEY = 'warroom_missions';
 const MISSIONS_DATE_KEY = 'warroom_missions_date';
 
 // ── BRAIN STATE ───────────────────────────────────────────────────────────────
 const BRAIN_STATES = [
-  { id: 'locked_in', label: 'LOCKED IN', emoji: '🎯', desc: 'Clear head, ready to execute' },
-  { id: 'drifting', label: 'DRIFTING', emoji: '🌊', desc: 'Scattered — need a mission' },
-  { id: 'flow', label: 'FLOW STATE', emoji: '⚡', desc: 'Everything is clicking' },
-  { id: 'emergency', label: 'EMERGENCY', emoji: '🚨', desc: 'Overwhelmed — need backup' },
+  { id: 'locked_in', label: 'LOCKED IN', Icon: Target, desc: 'Clear head, ready to execute' },
+  { id: 'drifting',  label: 'DRIFTING',  Icon: Wind,   desc: 'Scattered — need a mission' },
+  { id: 'flow',      label: 'FLOW STATE',Icon: Zap,    desc: 'Everything is clicking' },
+  { id: 'emergency', label: 'EMERGENCY', Icon: AlertTriangle, desc: 'Overwhelmed — need backup' },
 ] as const;
 
 type BrainStateId = typeof BRAIN_STATES[number]['id'];
@@ -863,7 +869,47 @@ export default function WarRoom() {
           {user?.username && (
             <Text style={s.callsign}>OPERATIVE: {user.username.toUpperCase()}</Text>
           )}
+          <View style={{ height: 1, backgroundColor: T.border, opacity: 0.3, marginVertical: 16, marginHorizontal: -20 }} />
         </View>
+
+        {/* ── HEALTH RECON STRIP ───────────────────────────────────────────────── */}
+        {healthData && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}>
+            <View style={s.healthPill}>
+              <Moon size={13} color={(healthData.sleep?.hours ?? 99) < 5 ? T.red : T.muted} />
+              <Text style={[s.healthValue, (healthData.sleep?.hours ?? 99) < 5 ? { color: T.red } : {}]}>
+                {healthData.sleep?.hours != null ? `${healthData.sleep.hours}h` : '--'}
+              </Text>
+              <Text style={s.healthLabel}>SLEEP</Text>
+            </View>
+            <View style={s.healthPill}>
+              <Heart size={13} color={T.muted} />
+              <Text style={s.healthValue}>{healthData.restingHR ?? '--'}</Text>
+              <Text style={s.healthLabel}>HR</Text>
+            </View>
+            <View style={s.healthPill}>
+              <Activity size={13} color={
+                healthData.hrv == null ? T.muted :
+                healthData.hrv > 50 ? T.green :
+                healthData.hrv > 30 ? '#f59e0b' : T.red
+              } />
+              <Text style={[s.healthValue,
+                healthData.hrv == null ? {} :
+                healthData.hrv > 50 ? { color: T.green } :
+                healthData.hrv > 30 ? { color: '#f59e0b' } :
+                { color: T.red }
+              ]}>
+                {healthData.hrv ?? '--'}
+              </Text>
+              <Text style={s.healthLabel}>HRV</Text>
+            </View>
+            <View style={s.healthPill}>
+              <Footprints size={13} color={T.muted} />
+              <Text style={s.healthValue}>{healthData.steps?.toLocaleString() ?? '--'}</Text>
+              <Text style={s.healthLabel}>STEPS</Text>
+            </View>
+          </ScrollView>
+        )}
 
         {/* ── RANK + TARGET ACQUIRED ──────────────────────────────────────────── */}
         {user?.goal_unlocked && (
@@ -938,12 +984,12 @@ export default function WarRoom() {
             onPress={() => { setShowIntelOverlay(true); setIntelQueue([]); }}
             activeOpacity={0.8}
           >
-            <Text style={s.intelIcon}>⚡</Text>
+            <Zap size={24} color={T.accent} />
             <View style={{ flex: 1 }}>
               <Text style={s.intelLabel}>INTEL</Text>
               <Text style={s.intelSub}>Photo · Screenshot · Voice · Type — File it all</Text>
             </View>
-            <Text style={s.intelArrow}>›</Text>
+            <ChevronRight size={18} color={T.accent} />
           </TouchableOpacity>
         </View>
 
@@ -968,9 +1014,10 @@ export default function WarRoom() {
         {/* ── BRAIN STATE ─────────────────────────────────────────────────────── */}
         <View style={s.section}>
           <Text style={s.sectionLabel}>BRAIN STATE</Text>
-          <View style={s.brainGrid}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}>
             {BRAIN_STATES.map(bs => {
               const active = brainState === bs.id;
+              const { Icon } = bs;
               return (
                 <TouchableOpacity
                   key={bs.id}
@@ -979,14 +1026,46 @@ export default function WarRoom() {
                   disabled={savingBrain}
                   activeOpacity={0.75}
                 >
-                  <Text style={s.brainEmoji}>{bs.emoji}</Text>
+                  <Icon size={22} color={active ? T.accent : T.muted} style={{ marginBottom: 8 }} />
                   <Text style={[s.brainLabel, active && s.brainLabelActive]}>{bs.label}</Text>
-                  <Text style={s.brainDesc}>{bs.desc}</Text>
+                  {active && <Text style={s.brainDesc}>{bs.desc}</Text>}
                 </TouchableOpacity>
               );
             })}
-          </View>
+          </ScrollView>
+
+          {/* Ground link */}
+          {brainState && brainState !== 'flow' && brainState !== 'locked_in' && (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Ground' as never)}
+              style={{ alignSelf: 'flex-start', marginTop: 12, paddingVertical: 4 }}
+            >
+              <Text style={{ color: T.muted, fontSize: 11, letterSpacing: 1 }}>
+                Need to ground? →
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
+
+        {/* ── EMERGENCY PROTOCOL ───────────────────────────────────────────────── */}
+        {brainState === 'emergency' && (
+          <View style={[s.section, { borderWidth: 1, borderColor: T.red ?? '#ef4444', borderRadius: 18, backgroundColor: (T.red ?? '#ef4444') + '12', marginBottom: 0 }]}>
+            <Text style={{ color: T.red ?? '#ef4444', fontSize: 10, fontWeight: '800', letterSpacing: 3, marginBottom: 10 }}>
+              ⚠ EMERGENCY PROTOCOL
+            </Text>
+            <Text style={{ color: T.text, fontSize: 14, lineHeight: 22, marginBottom: 16 }}>
+              You flagged overwhelm. That's real — and it means you need to discharge the stress response before anything else.
+            </Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Ground' as never)}
+              style={{ backgroundColor: T.red ?? '#ef4444', borderRadius: 12, paddingVertical: 14, alignItems: 'center' }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14, letterSpacing: 2 }}>
+                GROUND NOW — PICK A PROTOCOL
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* ── FUEL TARGET ──────────────────────────────────────────────────────── */}
         {(user?.macro_tier ?? 0) >= 1 && (
@@ -1043,6 +1122,12 @@ export default function WarRoom() {
                 </View>
               </View>
             )}
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Fuel' as never)}
+              style={{ marginTop: 10, alignSelf: 'flex-start' }}
+            >
+              <Text style={{ color: T.muted, fontSize: 11, letterSpacing: 1 }}>Log a meal →</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -1068,11 +1153,11 @@ export default function WarRoom() {
                   </TouchableOpacity>
                 )}
               </View>
-              <View style={[s.waterCard, { backgroundColor: T.card, borderColor: goalHit ? T.accent : T.border }]}>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, flex: 1 }}>
-                  {Array.from({ length: waterGoal }).map((_, i) => (
-                    <Text key={i} style={{ fontSize: 18 }}>
-                      {i < filled ? (goalHit ? '💧' : '💧') : '○'}
+              <View style={[s.waterCard, { backgroundColor: T.card, borderColor: goalHit ? T.accent : T.border + '30', borderRadius: 18, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 3 }]}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, flex: 1 }}>
+                  {Array.from({ length: Math.min(waterGoal, 12) }).map((_, i) => (
+                    <Text key={i} style={{ fontSize: 16, letterSpacing: 2, color: i < filled ? T.accent : T.border }}>
+                      {i < filled ? '●' : '○'}
                     </Text>
                   ))}
                 </View>
@@ -1091,7 +1176,7 @@ export default function WarRoom() {
                   style={[s.waterBtn, { backgroundColor: T.accent, flex: 1 }]}
                   onPress={() => logWater(defaultContainer)}
                 >
-                  <Text style={{ color: T.bg, fontWeight: '700', fontSize: 13 }}>+ {CONTAINERS[defaultContainer].emoji}</Text>
+                  <Droplets size={16} color={T.bg} />
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[s.waterBtn, { borderColor: T.border, borderWidth: 1, paddingHorizontal: 16 }]}
@@ -1123,8 +1208,18 @@ export default function WarRoom() {
 
           {missions.map((m, i) => (
             <View key={i}>
-              <View style={s.missionRow}>
-                <Text style={s.missionNum}>{calEvents.length + i + 1}</Text>
+              <View style={[
+                s.missionRow,
+                !m.text && { borderStyle: 'dashed', opacity: 0.35 },
+                m.done && { opacity: 0.4 },
+              ]}>
+                {/* Left accent bar */}
+                <View style={{
+                  position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+                  backgroundColor: m.done ? T.green : (m.text ? T.accent : T.border),
+                  borderRadius: 3,
+                }} />
+                <Text style={[s.missionNum, { marginLeft: 20 }]}>{calEvents.length + i + 1}</Text>
                 {editingIdx === i ? (
                   <TextInput
                     style={s.missionInput}
@@ -1339,20 +1434,20 @@ export default function WarRoom() {
         <View style={s.section}>
           <Text style={s.sectionLabel}>QUICK ACCESS</Text>
           <View style={s.quickRow}>
-            {[
-              { label: 'WORK', icon: '⏱', screen: 'Workday' as const, overlay: null },
-              { label: 'FIT', icon: '💪', screen: 'Fitness' as const, overlay: null },
-              { label: 'PANTRY', icon: '🥫', screen: null, overlay: 'pantry' as const },
-              { label: 'ARMORY', icon: '💰', screen: 'Budget' as const, overlay: null },
-              { label: 'OPS', icon: '⚙️', screen: 'Settings' as const, overlay: null },
-            ].map(q => (
+            {([
+              { label: 'WORK',   Icon: Timer,    screen: 'Workday' as const,  overlay: null },
+              { label: 'FIT',    Icon: Dumbbell, screen: 'Fitness' as const,  overlay: null },
+              { label: 'PANTRY', Icon: GlassWater, screen: null,              overlay: 'pantry' as const },
+              { label: 'ARMORY', Icon: Wallet,   screen: 'Budget' as const,   overlay: null },
+              { label: 'OPS',    Icon: Settings2, screen: 'Settings' as const, overlay: null },
+            ] as const).map(q => (
               <TouchableOpacity
                 key={q.label}
                 style={s.quickBtn}
                 onPress={() => q.overlay === 'pantry' ? setShowPantry(true) : navigation.navigate(q.screen!)}
                 activeOpacity={0.75}
               >
-                <Text style={s.quickIcon}>{q.icon}</Text>
+                <q.Icon size={20} color={T.muted} style={{ marginBottom: 6 }} />
                 <Text style={s.quickLabel}>{q.label}</Text>
               </TouchableOpacity>
             ))}
@@ -1382,29 +1477,45 @@ export default function WarRoom() {
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }}>
           <View style={{ backgroundColor: T.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 40 }}>
             <Text style={{ color: T.accent, fontSize: 11, fontWeight: '700', letterSpacing: 3, marginBottom: 16 }}>WHAT ARE YOU DRINKING?</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-              {(['bottle', 'cup', 'tumbler', 'biggulp'] as const).map(k => (
-                <TouchableOpacity key={k} style={{ width: '47%', flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: T.border, backgroundColor: T.bg }} onPress={() => logWater(k)}>
-                  <Text style={{ fontSize: 22 }}>{CONTAINERS[k].emoji}</Text>
-                  <View>
-                    <Text style={{ color: T.text, fontWeight: '600', fontSize: 13 }}>{CONTAINERS[k].label}</Text>
-                    <Text style={{ color: T.muted, fontSize: 10 }}>{CONTAINERS[k].ml}ml</Text>
+            {(() => {
+              const waterIcons: Record<string, React.ReactNode> = {
+                bottle:  <Droplets size={20} color={T.accent} />,
+                cup:     <GlassWater size={20} color={T.accent} />,
+                tumbler: <GlassWater size={20} color={T.accent} />,
+                biggulp: <Droplets size={20} color={T.accent} />,
+                pepsi:   <Flame size={20} color={T.muted} />,
+                coffee:  <Coffee size={20} color={T.muted} />,
+                alcohol: <Wine size={20} color={T.muted} />,
+                other:   <GlassWater size={20} color={T.muted} />,
+              };
+              return (
+                <>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+                    {(['bottle', 'cup', 'tumbler', 'biggulp'] as const).map(k => (
+                      <TouchableOpacity key={k} style={{ width: '47%', flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: T.border, backgroundColor: T.bg }} onPress={() => logWater(k)}>
+                        {waterIcons[k]}
+                        <View>
+                          <Text style={{ color: T.text, fontWeight: '600', fontSize: 13 }}>{CONTAINERS[k].label}</Text>
+                          <Text style={{ color: T.muted, fontSize: 10 }}>{CONTAINERS[k].ml}ml</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
                   </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={{ height: 1, backgroundColor: T.border, marginBottom: 12 }} />
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-              {(['pepsi', 'coffee', 'alcohol', 'other'] as const).map(k => (
-                <TouchableOpacity key={k} style={{ width: '47%', flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: T.border, backgroundColor: T.bg }} onPress={() => logWater(k)}>
-                  <Text style={{ fontSize: 22 }}>{CONTAINERS[k].emoji}</Text>
-                  <View>
-                    <Text style={{ color: T.text, fontWeight: '600', fontSize: 13 }}>{CONTAINERS[k].label}</Text>
-                    <Text style={{ color: T.muted, fontSize: 10 }}>{CONTAINERS[k].ml}ml</Text>
+                  <View style={{ height: 1, backgroundColor: T.border, marginBottom: 12 }} />
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                    {(['pepsi', 'coffee', 'alcohol', 'other'] as const).map(k => (
+                      <TouchableOpacity key={k} style={{ width: '47%', flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: T.border, backgroundColor: T.bg }} onPress={() => logWater(k)}>
+                        {waterIcons[k]}
+                        <View>
+                          <Text style={{ color: T.text, fontWeight: '600', fontSize: 13 }}>{CONTAINERS[k].label}</Text>
+                          <Text style={{ color: T.muted, fontSize: 10 }}>{CONTAINERS[k].ml}ml</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
                   </View>
-                </TouchableOpacity>
-              ))}
-            </View>
+                </>
+              );
+            })()}
             <TouchableOpacity onPress={() => setShowContainerPicker(false)} style={{ alignItems: 'center', marginTop: 16, padding: 12 }}>
               <Text style={{ color: T.muted, fontSize: 12 }}>CANCEL</Text>
             </TouchableOpacity>
@@ -1621,8 +1732,8 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       marginBottom: 4,
     },
     clock: {
-      fontSize: 38,
-      fontWeight: '900',
+      fontSize: 52,
+      fontWeight: '800',
       color: T.text,
       letterSpacing: -1,
     },
@@ -1641,17 +1752,17 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       letterSpacing: 2,
     },
     date: {
-      fontSize: 11,
+      fontSize: 12,
       color: T.muted,
-      letterSpacing: 2,
+      letterSpacing: 4,
       marginBottom: 12,
     },
     greeting: {
-      fontSize: 16,
-      fontWeight: '700',
+      fontSize: 22,
+      fontWeight: '800',
       color: T.text,
-      lineHeight: 22,
-      letterSpacing: 0.5,
+      lineHeight: 28,
+      letterSpacing: -0.5,
       marginBottom: 6,
     },
     callsign: {
@@ -1663,10 +1774,15 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
     goalCard: {
       backgroundColor: T.card,
       borderWidth: 1,
-      borderColor: T.accent,
-      borderRadius: 14,
+      borderColor: T.border + '30',
+      borderRadius: 18,
       padding: 18,
       marginBottom: 24,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+      elevation: 3,
     },
     goalHeader: {
       flexDirection: 'row',
@@ -1705,11 +1821,14 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       marginBottom: 28,
     },
     sectionLabel: {
-      fontSize: 10,
+      fontSize: 12,
       fontWeight: '800',
       color: T.accent,
-      letterSpacing: 3,
-      marginBottom: 12,
+      letterSpacing: 4,
+      marginBottom: 18,
+      borderLeftWidth: 3,
+      borderLeftColor: T.accent,
+      paddingLeft: 10,
     },
     // Brain state
     brainGrid: {
@@ -1718,36 +1837,48 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       gap: 10,
     },
     brainCard: {
-      width: '47%',
+      width: 150,
+      height: 100,
       backgroundColor: T.card,
       borderWidth: 1,
-      borderColor: T.border,
-      borderRadius: 12,
+      borderColor: T.border + '40',
+      borderRadius: 18,
       padding: 14,
-      alignItems: 'flex-start',
+      marginRight: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+      elevation: 3,
     },
     brainCardActive: {
       borderColor: T.accent,
-      backgroundColor: T.accentBg,
-    },
-    brainEmoji: {
-      fontSize: 22,
-      marginBottom: 6,
+      borderWidth: 2,
+      backgroundColor: T.accent + '18',
+      shadowColor: T.accent,
+      shadowOpacity: 0.25,
+      shadowRadius: 12,
+      elevation: 5,
     },
     brainLabel: {
       fontSize: 11,
       fontWeight: '800',
       color: T.muted,
       letterSpacing: 1.5,
-      marginBottom: 4,
+      marginTop: 8,
+      textAlign: 'center',
     },
     brainLabelActive: {
       color: T.accent,
     },
     brainDesc: {
-      fontSize: 10,
+      fontSize: 9,
       color: T.muted,
-      lineHeight: 14,
+      lineHeight: 13,
+      textAlign: 'center',
+      marginTop: 4,
     },
     // Missions
     missionRow: {
@@ -1804,10 +1935,15 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       alignItems: 'center',
       backgroundColor: T.card,
       borderWidth: 1,
-      borderColor: T.accent,
-      borderRadius: 10,
+      borderColor: T.border + '30',
+      borderRadius: 18,
       padding: 14,
       marginBottom: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+      elevation: 3,
     },
     signalContent: { flex: 1 },
     signalFrom: {
@@ -1842,10 +1978,15 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       alignItems: 'center',
       backgroundColor: T.card,
       borderWidth: 1,
-      borderColor: T.border,
-      borderRadius: 12,
+      borderColor: T.border + '30',
+      borderRadius: 18,
       padding: 16,
       gap: 12,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+      elevation: 3,
     },
     allyDot: {
       width: 10,
@@ -1893,7 +2034,7 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       letterSpacing: 1,
     },
     // RECON
-    reconStrip:      { borderWidth: 1, borderRadius: 12, padding: 14 },
+    reconStrip:      { borderWidth: 1, borderRadius: 18, padding: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 3 },
     reconHeader:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
     reconSubLabel:   { fontSize: 9, letterSpacing: 1 },
     reconRow:        { flexDirection: 'row', gap: 16 },
@@ -1912,9 +2053,14 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       gap: 14,
       backgroundColor: T.card,
       borderWidth: 1,
-      borderColor: T.border,
-      borderRadius: 12,
+      borderColor: T.border + '30',
+      borderRadius: 18,
       padding: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+      elevation: 3,
     },
     fieldResetIcon: { fontSize: 28 },
     fieldResetLabel: {
@@ -1974,10 +2120,14 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
     // Intel button (compact)
     intelBtn: {
       flexDirection: 'row', alignItems: 'center', gap: 14,
-      backgroundColor: T.card, borderWidth: 2, borderColor: T.accent,
-      borderRadius: 14, paddingVertical: 16, paddingHorizontal: 20,
+      backgroundColor: T.card, borderWidth: 1, borderColor: T.border + '30',
+      borderRadius: 18, paddingVertical: 18, paddingHorizontal: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+      elevation: 3,
     },
-    intelIcon: { fontSize: 28 },
     intelLabel: { fontSize: 14, fontWeight: '900', color: T.accent, letterSpacing: 2 },
     intelSub: { fontSize: 11, color: T.muted, marginTop: 2 },
     intelArrow: { fontSize: 22, color: T.accent, fontWeight: '300' },
@@ -2090,9 +2240,14 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
     fuelCard: {
       backgroundColor: T.card,
       borderWidth: 1,
-      borderColor: T.border,
-      borderRadius: 12,
+      borderColor: T.border + '30',
+      borderRadius: 18,
       padding: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+      elevation: 3,
     },
     fuelRow: {
       flexDirection: 'row',
@@ -2129,6 +2284,29 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       paddingVertical: 9,
       borderRadius: 20,
       borderWidth: 1,
+    },
+    healthPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: T.card,
+      borderWidth: 1,
+      borderColor: T.border + '40',
+      borderRadius: 20,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+    },
+    healthValue: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: T.text,
+      letterSpacing: 0.5,
+    },
+    healthLabel: {
+      fontSize: 9,
+      color: T.muted,
+      letterSpacing: 1.5,
+      fontWeight: '600',
     },
   });
 }

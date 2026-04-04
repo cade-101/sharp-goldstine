@@ -38,6 +38,14 @@ type User = {
   default_water_container?: string;
   macro_tier?: number;
   goal_unlocked?: boolean;
+  nightmare_config?: {
+    sensitivity: 'light' | 'standard' | 'aggressive';
+    partnerNotifyEnabled: boolean;
+    calibrationComplete: boolean;
+    calibrationNights: number;
+    baselineHR: number | null;
+    baselineHRV: number | null;
+  };
 };
 
 type UserContextType = {
@@ -167,6 +175,32 @@ async function syncHealthData(userId: string, currentProfile?: User) {
       steps: data.steps ?? null,
     }, { onConflict: 'user_id,date' });
     incrementThemeMetric(userId, 'wearable_consistency').catch(() => {});
+
+    // Nightmare calibration — build baseline HR/HRV over 7 nights
+    try {
+      const cfg = (currentProfile as any)?.nightmare_config;
+      if (cfg && !cfg.calibrationComplete && (data.restingHR || data.hrv)) {
+        const nights = (cfg.calibrationNights ?? 0) + 1;
+        const prevHR = cfg.baselineHR;
+        const prevHRV = cfg.baselineHRV;
+        const newBaseHR = data.restingHR
+          ? prevHR ? Math.round((prevHR * (nights - 1) + data.restingHR) / nights) : data.restingHR
+          : prevHR;
+        const newBaseHRV = data.hrv
+          ? prevHRV ? Math.round((prevHRV * (nights - 1) + data.hrv) / nights) : data.hrv
+          : prevHRV;
+        const updated = {
+          ...cfg,
+          calibrationNights: nights,
+          baselineHR: newBaseHR,
+          baselineHRV: newBaseHRV,
+          calibrationComplete: nights >= 7,
+        };
+        await supabase.from('user_profiles').update({ nightmare_config: updated }).eq('id', userId);
+      }
+    } catch {
+      // Non-blocking — calibration can retry next night
+    }
   } catch (e) {
     console.warn('Health Connect unavailable or failed to sync data. Not a blocking error.', e);
   }

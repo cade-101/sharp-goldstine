@@ -65,6 +65,16 @@ export async function checkAndSendPendingClarifications(userId: string) {
   }
 }
 
+/**
+ * Returns true when the current time is in a grounding-friendly window:
+ * evening (8pm–midnight) or early morning (midnight–9am).
+ * These are the highest-risk periods for anxiety/overwhelm spirals.
+ */
+export function isInGroundingWindow(): boolean {
+  const hour = new Date().getHours();
+  return hour >= 20 || hour < 9;
+}
+
 // Called when user taps a notification action button
 export async function resolveClarification(clarificationId: string, envelopeId: string) {
   if (envelopeId === 'skip') return;

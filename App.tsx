@@ -14,6 +14,9 @@ import FitnessScreen from './src/screens/FitnessScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import SignalButton from './src/components/SignalButton';
 import HouseholdSetupScreen from './src/screens/HouseholdSetupScreen';
+import Grounding from './src/screens/Grounding';
+import FamilyFuel from './src/screens/FamilyFuel';
+import { Wind, Flame } from 'lucide-react-native';
 
 const Tab = createBottomTabNavigator();
 
@@ -157,6 +160,22 @@ function MainApp() {
           options={{
             tabBarLabel: labels.work,
             tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>{icons.work}</Text>,
+          }}
+        />
+        <Tab.Screen
+          name="Ground"
+          component={Grounding}
+          options={{
+            tabBarLabel: 'GROUND',
+            tabBarIcon: ({ color }) => <Wind size={20} color={color} />,
+          }}
+        />
+        <Tab.Screen
+          name="Fuel"
+          component={FamilyFuel}
+          options={{
+            tabBarLabel: 'FUEL',
+            tabBarIcon: ({ color }) => <Flame size={20} color={color} />,
           }}
         />
         <Tab.Screen

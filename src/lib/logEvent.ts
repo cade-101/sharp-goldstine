@@ -12,7 +12,10 @@ export type EventType =
   | 'envelope_open'
   | 'supply_run_add'
   | 'drink_logged'
-  | 'water_logged';
+  | 'water_logged'
+  | 'grounding_session'
+  | 'nightmare_event'
+  | 'meal_logged';
 
 export async function logEvent(
   userId: string,

@@ -350,9 +350,12 @@ export default function SettingsScreen() {
             </Text>
             <View style={[styles.row, { alignItems: 'center' }]}>
               <Text style={[styles.rowLabel, { color: text, flex: 1 }]}>Status</Text>
-              <Text style={{ color: healthPermsGranted ? '#3ce08a' : muted, fontWeight: '700', fontSize: 13, letterSpacing: 1 }}>
-                {healthPermsGranted === null ? 'CHECKING…' : healthPermsGranted ? 'GRANTED' : 'NOT GRANTED'}
-              </Text>
+              {healthPermsGranted === null
+                ? <Text style={{ color: muted, fontWeight: '700', fontSize: 13, letterSpacing: 1 }}>CHECKING…</Text>
+                : healthPermsGranted
+                  ? <Text style={{ color: '#3ce08a', fontWeight: '800', fontSize: 14, letterSpacing: 1 }}>✅ GRANTED</Text>
+                  : <Text style={{ color: muted, fontWeight: '700', fontSize: 13, letterSpacing: 1 }}>NOT GRANTED</Text>
+              }
             </View>
             {!healthPermsGranted && (
               <TouchableOpacity

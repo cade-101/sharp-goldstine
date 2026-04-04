@@ -3203,6 +3203,45 @@ Pressing GRANT ACCESS in Settings crashed the app. `requestPermission()` from `r
 > The only safe approach: `openHealthConnectSettings()` + AppState listener to catch the return.
 > Never use `requestPermission()` directly.
 
+---
+
+## SESSION 40 — WAR ROOM VISUAL UPGRADE
+*April 3, 2026*
+**APK:** `build-1775281023936.apk`
+
+### Visual changes only — no logic touched
+
+**Icons** — installed `lucide-react-native`. Replaced all emojis with Lucide icons:
+- BRAIN STATE: Target / Wind / Zap / AlertTriangle (size 22, accent when active, muted when inactive)
+- INTEL button: Zap icon + ChevronRight arrow
+- Health strip: Moon / Heart / Activity / Footprints
+- Water picker: Droplets / GlassWater / Coffee / Wine
+- Main water button: Droplets icon replaces emoji
+- Quick access: Timer / Dumbbell / GlassWater / Wallet / Settings2
+
+**Health Recon Strip** — redesigned as horizontal ScrollView of pills:
+- Each pill: icon + value + unit label, pill shape (borderRadius 20, paddingH 12, paddingV 6)
+- Background T.card, border T.border, never wraps
+- HRV colour: green ≥50ms, yellow #f59e0b 30-49ms, red <30ms
+
+**Card depth** — applied to goalCard, fuelCard, allyCard, intelBtn, fieldResetBtn, all action cards:
+- borderWidth 0 → borderWidth 1 + borderColor T.accent/border + '40' (25% opacity)
+- shadowColor: T.accent, shadowOffset {0,2}, shadowOpacity 0.08, shadowRadius 8, elevation 3
+- borderRadius increased to 18 on all cards
+
+**Brain State grid** — now horizontal ScrollView:
+- Each card: width 140, height 110, borderRadius 18, icon centered above label
+- Active card: borderWidth 2, borderColor T.accent, background T.accent+'15', shadowOpacity 0.3 shadowRadius 12
+- Desc text only shows on active card
+
+**Section labels** — borderLeftWidth 2 accent left bar, fontSize 11→12, letterSpacing 3→4, marginBottom 12→16, paddingLeft 10
+
+**Header** — clock fontSize 38→48, greeting fontSize 16→22 fontWeight '800' letterSpacing -0.5, date letterSpacing 4. Thin horizontal rule (1px, opacity 0.4) after callsign line.
+
+**Missions** — position:absolute left accent bar (3px wide, accent/green/border colour by state). Done missions: opacity 0.45 + strikethrough. Empty slots: dashed border, opacity 0.4.
+
+**Water tracker** — dots: filled ● (T.accent) + empty ○ (T.border) instead of emoji/number. Container picker uses Lucide icons.
+
 ### Standing rule for builds
 > Update the journal **and** build an APK after every session.
 > If the new build crashes, the previous APK is the rollback. Work from there.
@@ -3263,5 +3302,58 @@ Pressing GRANT ACCESS in Settings crashed the app. `requestPermission()` from `r
 - Wire `assessCrashLevel` into UserContext post-health-sync
 - Wire `computeWeeklyPatterns` on app open if >7d since last
 - Install `react-native-purchases` when RevenueCat account is set up
+
+---
+
+## SESSION 41 — WAR ROOM VISUAL REFINEMENT PASS
+*April 3, 2026*
+**APK:** `build-1775292098709.apk` ✅
+
+### Delta from Session 40 (refinement pass, same file)
+- Added `Flame`, `Shield` to lucide imports
+- **Health pills**: paddingH 14, paddingV 8, borderColor T.border+'40', label "HR" (was "RHR"), use T.red/T.green theme tokens, null shown as `--`
+- **Card shadows**: all `shadowColor:'#000'`, `shadowOpacity:0.12`, borderColor T.border+'30'
+- **Brain cards**: width 150 height 100, active bg T.accent+'18', active shadowOpacity 0.25 elevation:5
+- **Section labels**: borderLeftWidth:3, marginBottom:18
+- **Clock**: fontSize 52 fontWeight '800' letterSpacing -1
+- **Header divider**: opacity 0.3, marginVertical:16, marginHorizontal:-20 (full-bleed)
+- **Intel button**: paddingVertical:18, borderColor T.border+'30'
+- **Missions**: done opacity:0.4, empty opacity:0.35, content marginLeft:20
+- **Water dots**: capped at 12, letterSpacing:2
+- **Container picker**: pepsi → Flame icon; waterCard shadow/borderRadius 18
+- **signalCard, reconStrip**: borderRadius 18 + shadow
+
+---
+
+## SESSION 42 — GROUNDING + NIGHTMARE WATCH + FAMILY FUEL
+*April 4, 2026*
+**APK:** `build-1775311897724.apk` ✅
+
+### New screens
+- `src/screens/Grounding.tsx` — 5 grounding protocols: Box Breathing (4-4-4-4 animated square), 5-4-3-2-1 (per-sense text inputs), Body Scan (7-zone auto-advance 15s), Rage Drain (5-step timed physical reset with haptic pulses), Intel Dump (timer + free-text, drain button). Session complete screen with brain state check-in. Logs to `grounding_sessions`, fires `grounding_session` event, increments `module_days` theme metric.
+- `src/screens/NightmareSettings.tsx` — calibration progress bar (x/7 nights), sensitivity chips (light/standard/aggressive), partner notify toggle, recent nightmare events list (ACK / FALSE POSITIVE actions), clinical disclaimer note.
+- `src/screens/FamilyFuel.tsx` — 5 sub-screens via local state: home (today's macros summary + meal log list), log_meal (AI suggestions horizontal scroll + form with meal type/for/cal/protein chips), recipes (categorized list), recipe_detail (macros strip + ingredients + instructions), family_setup (add/remove household members with age groups). Seeds 5 starter recipes on first load if recipes table empty.
+
+### New lib files
+- `src/lib/nightmareDetector.ts` — `checkNightmarePattern()` (HR spike + HRV drop vs baseline), `triggerNightmareBuzz()` (3x heavy haptic), `sendWatchHaptic()` (alias), `acknowledgeNightmareEvent()`, `markFalsePositive()`, `getRecentNightmareEvents()`
+- `src/lib/mealSuggestions.ts` — `getSuggestedMeals()` — calls Claude Haiku with meal type + family size, returns typed `MealSuggestion[]`, falls back to 5 hardcoded suggestions on API failure
+
+### Supabase migrations
+- `grounding_sessions` — user_id, session_type, duration_seconds, completed, brain_state_after, notes, created_at. RLS enabled.
+- `nightmare_events` — user_id, detected_at, hr_spike_bpm, hrv_drop_ms, acknowledged, false_positive, notes. RLS enabled.
+- `recipes` — user_id (nullable for seeds), name, category, ingredients jsonb, instructions, macros jsonb, prep_minutes, tags[], is_seed. RLS: SELECT open for seeds OR user_id match; INSERT/UPDATE/DELETE user_id only.
+- `meal_logs` — user_id, recipe_id, meal_name, meal_type, logged_for, macros jsonb, logged_at. RLS enabled.
+- `family_fuel_profiles` — user_id, member_name, age_group, dietary_restrictions[], preferences[], calorie_target. RLS enabled.
+- `ALTER TABLE user_profiles ADD COLUMN nightmare_config jsonb DEFAULT {...}` — sensitivity, partnerNotifyEnabled, calibrationComplete, calibrationNights, baselineHR, baselineHRV
+
+### Updated existing files
+- `src/lib/logEvent.ts` — added `'grounding_session' | 'nightmare_event' | 'meal_logged'` to EventType
+- `src/lib/downtimeDetector.ts` — added `isInGroundingWindow()` (returns true if hour >= 20 or < 9)
+- `src/context/UserContext.tsx` — added `nightmare_config` to User type; nightmare calibration logic in `syncHealthData` (7-night running avg for baselineHR/baselineHRV, sets calibrationComplete on night 7)
+- `App.tsx` — GROUND tab (Wind icon) after WORK, FUEL tab (Flame icon) after GROUND; lucide icons directly as tabBarIcon (not emoji text)
+- `src/screens/WarRoom.tsx` — EMERGENCY PROTOCOL card (brainState === 'emergency') with GROUND NOW button navigating to Ground tab; "Need to ground? →" quiet link below brain state cards (shows when state is drifting/emergency); "Log a meal →" link in FUEL TARGET section navigating to Fuel tab
+
+### Tabs (updated)
+WAR ROOM · WORK · GROUND · FUEL · IRON/FITNESS · ARMORY · SETTINGS
 
 *To resume in a new chat: upload this file and say "Resume Tether build"*
