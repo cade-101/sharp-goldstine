@@ -33,6 +33,8 @@ import { SPOTIFY_CLIENT_ID as SPOT_ID } from '../lib/config';
 import { callEdgeFunction } from '../lib/callEdgeFunction';
 import { useThemeIntensity } from '../lib/useThemeIntensity';
 import { ThemeTokens } from '../themes';
+import { ChevronLeft } from 'lucide-react-native';
+import { awardOpsPoints } from '../lib/opsPoints';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -797,6 +799,7 @@ const { intensityStyles, intensityState } = useThemeIntensity({
       await callEngine({ event: 'session_end', userId: user.id, sessionId, payload: { completedSets: completedSets.length, prsHit } });
     } catch { /* best effort */ }
     await loadHistory();
+    if (user?.id) awardOpsPoints(user.id, 3, 'workout_logged').catch(() => {});
     setScreen('complete');
   }
 
@@ -826,9 +829,7 @@ const { intensityStyles, intensityState } = useThemeIntensity({
   if (screen === 'beast') return <BeastMode onBack={() => setScreen('home')} />;
   if (screen === 'quick') return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <TouchableOpacity style={s.backBtn} onPress={() => setScreen('home')}>
-        <Text style={s.backBtnText}>← BACK</Text>
-      </TouchableOpacity>
+      <TouchableOpacity onPress={() => setScreen('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, margin: 16 }} activeOpacity={0.7}><ChevronLeft size={16} color={C.accent} /><Text style={{ fontSize: 12, color: C.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text></TouchableOpacity>
       <QuickHits />
     </View>
   );
@@ -1308,9 +1309,7 @@ const { intensityStyles, intensityState } = useThemeIntensity({
       <SafeAreaView style={s.bg}>
         <View style={s.histHeader}>
           <Text style={[s.histTitle, { color: C.text }]}>PROPS 💪</Text>
-          <TouchableOpacity onPress={() => setScreen('home')}>
-            <Text style={s.backBtnText}>← BACK</Text>
-          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setScreen('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }} activeOpacity={0.7}><ChevronLeft size={16} color={C.accent} /><Text style={{ fontSize: 12, color: C.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text></TouchableOpacity>
         </View>
         <ScrollView contentContainerStyle={{ padding: 20 }}>
           {propsInbox.length === 0 ? (
@@ -1334,9 +1333,7 @@ const { intensityStyles, intensityState } = useThemeIntensity({
       <SafeAreaView style={s.bg}>
         <View style={s.histHeader}>
           <Text style={[s.histTitle, { color: '#1DB954', fontSize: 24 }]}>ADD TRACK</Text>
-          <TouchableOpacity onPress={() => setScreen('home')}>
-            <Text style={s.backBtnText}>← BACK</Text>
-          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setScreen('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }} activeOpacity={0.7}><ChevronLeft size={16} color={C.accent} /><Text style={{ fontSize: 12, color: C.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text></TouchableOpacity>
         </View>
         <View style={{ padding: 16, flexDirection: 'row', gap: 10 }}>
           <TextInput
@@ -1399,13 +1396,13 @@ const { intensityStyles, intensityState } = useThemeIntensity({
       <SafeAreaView style={s.bg}>
         <StatusBar barStyle={C.mode === 'dark' ? 'light-content' : 'dark-content'} />
         <View style={s.wkHeader}>
-          <TouchableOpacity onPress={() =>
-            Alert.alert('End workout?', 'Progress will be saved.', [
-              { text: 'Keep going' },
-              { text: 'End', style: 'destructive', onPress: finishSession },
-            ])
-          }>
-            <Text style={s.backBtnText}>← END</Text>
+          <TouchableOpacity
+            onPress={() => Alert.alert('End workout?', 'Progress will be saved.', [{ text: 'Keep going' }, { text: 'End', style: 'destructive', onPress: finishSession }])}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }}
+            activeOpacity={0.7}
+          >
+            <ChevronLeft size={16} color={C.accent} />
+            <Text style={{ fontSize: 12, color: C.accent, fontWeight: '600', letterSpacing: 1 }}>END</Text>
           </TouchableOpacity>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={s.wkTitle}>{plan.label}</Text>
@@ -1674,9 +1671,7 @@ const { intensityStyles, intensityState } = useThemeIntensity({
     <SafeAreaView style={s.bg}>
       <View style={s.histHeader}>
         <Text style={[s.histTitle, { color: C.text }]}>{isForm ? 'History 💕' : 'HISTORY'}</Text>
-        <TouchableOpacity onPress={() => setScreen('home')}>
-          <Text style={s.backBtnText}>← BACK</Text>
-        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setScreen('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }} activeOpacity={0.7}><ChevronLeft size={16} color={C.accent} /><Text style={{ fontSize: 12, color: C.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text></TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={{ padding: 20 }}>
         {history.length === 0 ? (

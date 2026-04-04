@@ -3,6 +3,8 @@ import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, StatusBar, Modal, ActivityIndicator, Alert
 } from 'react-native';
+import { ChevronLeft } from 'lucide-react-native';
+import { awardOpsPoints } from '../lib/opsPoints';
 import { supabase } from '../lib/supabase';
 import { ANTHROPIC_API_KEY } from '../lib/config';
 import { useUser } from '../context/UserContext';
@@ -452,7 +454,10 @@ export default function BudgetTracker() {
       date: new Date().toISOString().split('T')[0],
     };
     await supabase.from('budget_expenses').insert(expense);
-    if (user?.id) incrementThemeMetric(user.id, 'budget_days').catch(() => {});
+    if (user?.id) {
+      incrementThemeMetric(user.id, 'budget_days').catch(() => {});
+      awardOpsPoints(user.id, 1, 'budget_logged').catch(() => {});
+    }
     setExpenses(prev => [{ ...expense, created_at: new Date().toISOString() }, ...prev]);
     setLogAmount('');
     setLogNote('');
@@ -650,8 +655,13 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`,
 
         {/* Header */}
         <View style={s.detailHeader}>
-          <TouchableOpacity onPress={() => setScreen('home')}>
-            <Text style={s.back}>← ARMORY</Text>
+          <TouchableOpacity
+            onPress={() => setScreen('home')}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }}
+            activeOpacity={0.7}
+          >
+            <ChevronLeft size={16} color={T.accent} />
+            <Text style={{ fontSize: 12, color: T.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text>
           </TouchableOpacity>
           <Text style={s.detailName}>{selectedEnvelope.name}</Text>
           <View style={s.detailStats}>
@@ -766,7 +776,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`,
     <SafeAreaView style={s.bg}>
       <StatusBar barStyle={T.mode === 'light' ? 'dark-content' : 'light-content'} />
       <ScrollView contentContainerStyle={s.formContainer}>
-        <TouchableOpacity onPress={() => setScreen('home')}><Text style={s.back}>← BACK</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => setScreen('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, marginBottom: 20 }} activeOpacity={0.7}><ChevronLeft size={16} color={T.accent} /><Text style={{ fontSize: 12, color: T.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text></TouchableOpacity>
         <Text style={s.formTitle}>Can I afford this?</Text>
 
         <Text style={s.formLabel}>WHAT IS IT</Text>
@@ -846,7 +856,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`,
     <SafeAreaView style={s.bg}>
       <StatusBar barStyle={T.mode === 'light' ? 'dark-content' : 'light-content'} />
       <ScrollView contentContainerStyle={s.formContainer}>
-        <TouchableOpacity onPress={() => setScreen('home')}><Text style={s.back}>← BACK</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => setScreen('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, marginBottom: 20 }} activeOpacity={0.7}><ChevronLeft size={16} color={T.accent} /><Text style={{ fontSize: 12, color: T.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text></TouchableOpacity>
         <Text style={s.formTitle}>Log Expense</Text>
 
         <Text style={s.formLabel}>AMOUNT</Text>
@@ -980,9 +990,7 @@ Be direct. No sugar coating. ADHD brain needs clarity not paragraphs.`,
           <TouchableOpacity onPress={showClearOptions}>
             <Text style={[s.back, { color: T.red }]}>CLEAR</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setScreen('home')}>
-            <Text style={s.back}>← BACK</Text>
-          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setScreen('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }} activeOpacity={0.7}><ChevronLeft size={16} color={T.accent} /><Text style={{ fontSize: 12, color: T.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text></TouchableOpacity>
         </View>
       </View>
       <Text style={{ color: T.muted, fontSize: 10, letterSpacing: 1, paddingHorizontal: 16, paddingBottom: 8 }}>

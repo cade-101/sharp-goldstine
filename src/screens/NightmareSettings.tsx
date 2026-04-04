@@ -79,8 +79,9 @@ export default function NightmareSettings({ onBack }: { onBack?: () => void }) {
       <StatusBar barStyle="light-content" />
       <View style={[styles.header, { borderBottomColor: T.border + '30' }]}>
         {onBack && (
-          <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-            <ChevronLeft size={22} color={T.muted} />
+          <TouchableOpacity onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }} activeOpacity={0.7}>
+            <ChevronLeft size={16} color={T.accent} />
+            <Text style={{ fontSize: 12, color: T.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text>
           </TouchableOpacity>
         )}
         <Moon size={20} color={T.accent} />

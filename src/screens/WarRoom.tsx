@@ -14,6 +14,10 @@ import { ANTHROPIC_API_KEY } from '../lib/config';
 import { logEvent } from '../lib/logEvent';
 import { callEdgeFunction } from '../lib/callEdgeFunction';
 import { incrementThemeMetric } from '../lib/themeUnlocks';
+import { logIntelDropToJournal } from '../lib/noseyEngine';
+import { awardOpsPoints } from '../lib/opsPoints';
+import GlitchReveal from '../components/GlitchReveal';
+import { HIDDEN_THEME_CONFIGS, type ThemeProgressEntry } from '../lib/themeUnlocks';
 import { GroceryNudgeCard } from '../components/GroceryNudgeCard';
 import Blitz from './Blitz';
 import ShoppingList from './ShoppingList';
@@ -155,6 +159,9 @@ export default function WarRoom() {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
 
+  // GlitchReveal
+  const [pendingGlitch, setPendingGlitch] = useState<{ themeKey: string; themeName: string; bridgeName: string; current: number; target: number } | null>(null);
+
   // Intel Overlay
   const [showIntelOverlay, setShowIntelOverlay] = useState(false);
   const [intelMode, setIntelMode] = useState<IntelMode>('photo');
@@ -263,6 +270,29 @@ export default function WarRoom() {
     loadCalendar();
     loadConsistencyData();
     loadActiveGoal();
+    // Check for pending glitch reveals
+    if (user?.id) {
+      (async () => {
+        try {
+          const { data } = await supabase.from('user_profiles').select('theme_progress').eq('id', user.id).single();
+          const progress: Record<string, ThemeProgressEntry> = data?.theme_progress ?? {};
+          let best: typeof pendingGlitch = null;
+          let bestPct = 0;
+          for (const cfg of HIDDEN_THEME_CONFIGS) {
+            const entry = progress[cfg.key];
+            if (!entry?.glitchReadyAt) continue;
+            const shown = await AsyncStorage.getItem(`glitch_shown_${cfg.key}`);
+            if (shown) continue;
+            const pct = entry.current / entry.target;
+            if (pct > bestPct) {
+              bestPct = pct;
+              best = { themeKey: cfg.key, themeName: cfg.fullKey, bridgeName: cfg.bridgeKey, current: entry.current, target: entry.target };
+            }
+          }
+          if (best) setPendingGlitch(best);
+        } catch { /* non-blocking */ }
+      })();
+    }
     if (goalUnlockReady && !user?.goal_unlocked) loadGoalOptions();
     // Load today's nutrition check-in
     if (user?.id && (user?.macro_tier ?? 0) >= 1) {
@@ -516,6 +546,8 @@ export default function WarRoom() {
       setIntelQueue(q => q.map(i => i.id === queueId ? { ...i, status: 'done', summary } : i));
       logEvent(user.id, 'intel_drop', { store: data.store, items_logged: data.itemsLogged });
       incrementThemeMetric(user.id, 'module_days').catch(() => {});
+      // Log image intel description to journal for pattern analysis (best-effort)
+      if (data.store) logIntelDropToJournal(user.id, `Receipt from ${data.store}`).catch(() => {});
     } catch {
       setIntelQueue(q => q.map(i => i.id === queueId ? { ...i, status: 'failed', summary: 'Failed — will retry' } : i));
     }
@@ -573,6 +605,7 @@ export default function WarRoom() {
         setIntelQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'done', summary } : i));
         logEvent(user.id, 'intel_text', { items: data.itemsLogged });
         incrementThemeMetric(user.id, 'module_days').catch(() => {});
+        logIntelDropToJournal(user.id, item.content).catch(() => {});
       } catch {
         setIntelQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'failed', summary: 'Failed' } : i));
       }
@@ -658,7 +691,11 @@ export default function WarRoom() {
     const updated = [...missions];
     const m = updated[missionIdx];
     m.steps[stepIdx].done = !m.steps[stepIdx].done;
+    const wasDone = missions[missionIdx].done;
     m.done = m.steps.length > 0 && m.steps.every(s => s.done);
+    if (!wasDone && m.done && user?.id) {
+      awardOpsPoints(user.id, 2, 'mission_complete').catch(() => {});
+    }
     setMissions(updated);
     AsyncStorage.setItem(MISSIONS_KEY, JSON.stringify(updated));
   }
@@ -759,6 +796,17 @@ export default function WarRoom() {
 
   return (
     <SafeAreaView style={s.safe}>
+        {/* ── GLITCH REVEAL ───────────────────────────────────────────────────── */}
+        {pendingGlitch && (
+          <GlitchReveal
+            themeKey={pendingGlitch.themeKey}
+            themeName={pendingGlitch.themeName}
+            bridgeName={pendingGlitch.bridgeName}
+            currentProgress={pendingGlitch.current}
+            targetProgress={pendingGlitch.target}
+            onDismiss={() => setPendingGlitch(null)}
+          />
+        )}
         {/* ── GOAL UNLOCK MOMENT ──────────────────────────────────────────────── */}
         {goalUnlockReady && !user?.goal_unlocked && (
           <Modal visible={true} animationType="fade" statusBarTranslucent>

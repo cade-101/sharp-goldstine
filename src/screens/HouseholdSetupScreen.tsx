@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { ANTHROPIC_API_KEY } from '../lib/config';
 import { useUser } from '../context/UserContext';
+import { ChevronLeft } from 'lucide-react-native';
 
 type Screen = 'input' | 'loading' | 'pick';
 type Mode = 'create' | 'join';
@@ -177,8 +178,9 @@ Return ONLY a JSON array of 3 strings. No markdown, no explanation:
           {saving ? <ActivityIndicator color={C.bg} /> : <Text style={[s.primaryBtnText, { color: C.bg }]}>LOCK IT IN</Text>}
         </TouchableOpacity>
 
-        <TouchableOpacity style={s.skipBtn} onPress={() => setScreen('input')}>
-          <Text style={[s.skipText, { color: C.muted }]}>← try different info</Text>
+        <TouchableOpacity onPress={() => setScreen('input')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, marginTop: 12 }} activeOpacity={0.7}>
+          <ChevronLeft size={16} color={C.accent} />
+          <Text style={{ fontSize: 12, color: C.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

@@ -609,13 +609,12 @@ export default function FamilyFuel() {
       <View style={[styles.header, { borderBottomColor: T.border + '30' }]}>
         {screen !== 'home' ? (
           <TouchableOpacity
-            onPress={() => {
-              if (screen === 'recipe_detail') setScreen('recipes');
-              else setScreen('home');
-            }}
-            style={styles.backBtn}
+            onPress={() => { if (screen === 'recipe_detail') setScreen('recipes'); else setScreen('home'); }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }}
+            activeOpacity={0.7}
           >
-            <ChevronLeft size={22} color={T.muted} />
+            <ChevronLeft size={16} color={T.accent} />
+            <Text style={{ fontSize: 12, color: T.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text>
           </TouchableOpacity>
         ) : (
           <Flame size={20} color={T.accent} style={{ marginRight: 8 }} />

@@ -6,6 +6,7 @@ import { getTheme, ThemeTokens } from '../themes'; // Assuming this is correct
 import { getAllHealthData, type HealthData } from '../lib/healthConnect';
 import { setupClarifyCategory, checkAndSendPendingClarifications } from '../lib/downtimeDetector';
 import { incrementThemeMetric } from '../lib/themeUnlocks';
+import { noseyQuestionTime } from '../lib/noseyEngine';
 import Constants from 'expo-constants';
 
 const BIOMETRIC_EMAIL_KEY = 'tether_bio_email';
@@ -175,6 +176,26 @@ async function syncHealthData(userId: string, currentProfile?: User) {
       steps: data.steps ?? null,
     }, { onConflict: 'user_id,date' });
     incrementThemeMetric(userId, 'wearable_consistency').catch(() => {});
+
+    // Fire nosey questions if conditions are right
+    noseyQuestionTime(
+      userId,
+      data.hrv ?? null,
+      async (title, body, pushData) => {
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('push_token')
+          .eq('id', userId)
+          .single();
+        const token = profile?.push_token;
+        if (!token) return;
+        await fetch('https://exp.host/--/api/v2/push/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: token, title, body, data: pushData, sound: 'default' }),
+        }).catch(() => {});
+      },
+    ).catch(() => {});
 
     // Nightmare calibration — build baseline HR/HRV over 7 nights
     try {

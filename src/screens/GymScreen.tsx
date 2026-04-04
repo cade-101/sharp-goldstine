@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert
 } from 'react-native';
+import { ChevronLeft } from 'lucide-react-native';
 import { supabase } from '../lib/supabase';
 import { useUser } from '../context/UserContext';
 import { logEvent } from '../lib/logEvent';
@@ -322,8 +323,8 @@ export default function GymScreen({
       <SafeAreaView style={s.bg}>
         <StatusBar barStyle="light-content" />
         <View style={s.wkHeader}>
-          <TouchableOpacity onPress={() => Alert.alert('End workout?', '', [{ text: 'Cancel' }, { text: 'End', onPress: () => { clearInterval(timerRef.current); setScreen('home'); } }])}>
-            <Text style={s.wkBack}>← BACK</Text>
+          <TouchableOpacity onPress={() => Alert.alert('End workout?', '', [{ text: 'Cancel' }, { text: 'End', onPress: () => { clearInterval(timerRef.current); setScreen('home'); } }])} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }} activeOpacity={0.7}>
+            <ChevronLeft size={16} color={C.gold} /><Text style={{ fontSize: 12, color: C.gold, fontWeight: '600', letterSpacing: 1 }}>END</Text>
           </TouchableOpacity>
           <View><Text style={s.wkTitle}>{session?.name}</Text><Text style={s.wkSub}>{new Date().toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase()}</Text></View>
         </View>
@@ -400,7 +401,7 @@ export default function GymScreen({
     <SafeAreaView style={s.bg}>
       <View style={s.histHeader}>
         <Text style={s.histTitle}>HISTORY</Text>
-        <TouchableOpacity onPress={() => setScreen('home')}><Text style={s.wkBack}>← BACK</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => setScreen('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }} activeOpacity={0.7}><ChevronLeft size={16} color={C.gold} /><Text style={{ fontSize: 12, color: C.gold, fontWeight: '600', letterSpacing: 1 }}>BACK</Text></TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={{ padding: 20 }}>
         {history.length === 0 ? (

@@ -4,6 +4,7 @@ import {
   StyleSheet, SafeAreaView, StatusBar, Modal, Alert,
   Animated
 } from 'react-native';
+import { ChevronLeft } from 'lucide-react-native';
 import { supabase } from '../lib/supabase';
 import type { FitnessMode } from './FitnessMode';
 
@@ -400,8 +401,8 @@ export default function GymScreenD({
       <SafeAreaView style={s.wkBg}>
         <StatusBar barStyle="dark-content" />
         <View style={s.wkHeader}>
-          <TouchableOpacity onPress={() => Alert.alert('End session? 🌸', '', [{ text: 'Keep going 💪' }, { text: 'End', onPress: () => { clearInterval(timerRef.current); setScreen('home'); } }])}>
-            <Text style={s.wkBack}>← back</Text>
+          <TouchableOpacity onPress={() => Alert.alert('End session? 🌸', '', [{ text: 'Keep going 💪' }, { text: 'End', onPress: () => { clearInterval(timerRef.current); setScreen('home'); } }])} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.card, borderWidth: 1, borderColor: C.roseBorder, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }} activeOpacity={0.7}>
+            <ChevronLeft size={16} color={C.rose} /><Text style={{ fontSize: 12, color: C.rose, fontWeight: '600', letterSpacing: 1 }}>END</Text>
           </TouchableOpacity>
           <View>
             <Text style={s.wkTitle}>{session?.name}</Text>
@@ -507,7 +508,7 @@ export default function GymScreenD({
     <SafeAreaView style={s.homeBg}>
       <View style={s.histHeader}>
         <Text style={s.histTitle}>History 💕</Text>
-        <TouchableOpacity onPress={() => setScreen('home')}><Text style={s.wkBack}>← back</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => setScreen('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.card, borderWidth: 1, borderColor: C.roseBorder, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }} activeOpacity={0.7}><ChevronLeft size={16} color={C.rose} /><Text style={{ fontSize: 12, color: C.rose, fontWeight: '600', letterSpacing: 1 }}>BACK</Text></TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={{ padding: 20 }}>
         {history.length === 0 ? (

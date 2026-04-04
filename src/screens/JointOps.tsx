@@ -10,6 +10,7 @@ import { sendPushNotification } from '../lib/sendPushNotification';
 import type { EffortRating } from '../lib/fitnessTypes';
 import VSScreen from '../components/VSScreen';
 import { callEdgeFunction } from '../lib/callEdgeFunction';
+import { awardOpsPoints } from '../lib/opsPoints';
 
 // ── DEFAULT SHIT TALK ──────────────────────────────────────────────────────────
 const DEFAULT_SHIT_TALK = [
@@ -423,6 +424,7 @@ export default function JointOps({ user, partnerId, partnerUsername, partnerThem
         });
       } catch { /* best effort */ }
     }
+    awardOpsPoints(user.id, 5, 'joint_ops_complete').catch(() => {});
     setScreen('complete');
   }
 

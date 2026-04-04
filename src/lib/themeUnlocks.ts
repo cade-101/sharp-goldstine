@@ -14,6 +14,7 @@ export type ThemeProgressEntry = {
   target: number;
   bridgeStartedAt: string | null;
   unlockedAt: string | null;
+  glitchReadyAt?: string | null;
 };
 
 export type ThemeProgressMap = Record<string, ThemeProgressEntry>;
@@ -28,11 +29,12 @@ type HiddenThemeConfig = {
 };
 
 export const HIDDEN_THEME_CONFIGS: HiddenThemeConfig[] = [
-  { key: 'marauder',   fullKey: 'MARAUDER',   bridgeKey: 'DUSTMARK',    metric: 'workout_days',        target: 21, bridgeDays: 3 },
-  { key: 'blacktide',  fullKey: 'BLACKTIDE',  bridgeKey: 'LOWTIDE',     metric: 'budget_days',         target: 14, bridgeDays: 3 },
-  { key: 'frostborn',  fullKey: 'FROSTBORN',  bridgeKey: 'THAWLINE',    metric: 'workout_days',        target: 28, bridgeDays: 4 },
-  { key: 'mimic',      fullKey: 'MIMIC',      bridgeKey: 'GLASSVEIL',   metric: 'module_days',         target: 14, bridgeDays: 4 },
-  { key: 'synthraid',  fullKey: 'SYNTHRAID',  bridgeKey: 'STATICDRIFT', metric: 'wearable_consistency',target: 21, bridgeDays: 5 },
+  { key: 'marauder',   fullKey: 'MARAUDER',   bridgeKey: 'DUSTMARK',    metric: 'workout_days',        target: 60, bridgeDays: 3 },
+  { key: 'blacktide',  fullKey: 'BLACKTIDE',  bridgeKey: 'LOWTIDE',     metric: 'budget_days',         target: 45, bridgeDays: 3 },
+  { key: 'frostborn',  fullKey: 'FROSTBORN',  bridgeKey: 'THAWLINE',    metric: 'workout_days',        target: 90, bridgeDays: 4 },
+  { key: 'mimic',      fullKey: 'MIMIC',      bridgeKey: 'GLASSVEIL',   metric: 'module_days',         target: 60, bridgeDays: 4 },
+  { key: 'synthraid',  fullKey: 'SYNTHRAID',  bridgeKey: 'STATICDRIFT', metric: 'wearable_consistency',target: 50, bridgeDays: 5 },
+  { key: 'elven',      fullKey: 'ELVEN',      bridgeKey: 'GREENLEAF',   metric: 'module_days',         target: 45, bridgeDays: 5 },
 ];
 
 export function createInitialThemeProgress(): ThemeProgressMap {
@@ -116,7 +118,12 @@ export async function incrementThemeMetric(
       if (entry.state === 'unlocked') continue;
 
       if (entry.state === 'locked') {
+        const prevCurrent = entry.current;
         entry.current = Math.min(entry.current + value, entry.target);
+        // Set glitch flag when crossing 50% for the first time
+        if (!entry.glitchReadyAt && entry.current / entry.target >= 0.5 && prevCurrent / entry.target < 0.5) {
+          entry.glitchReadyAt = new Date().toISOString();
+        }
         if (shouldStartBridge(entry)) {
           entry.state = 'bridging';
           entry.bridgeStartedAt = new Date().toISOString();

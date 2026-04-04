@@ -12,6 +12,7 @@ import { useUser } from '../context/UserContext';
 import { supabase } from '../lib/supabase';
 import { logEvent } from '../lib/logEvent';
 import { incrementThemeMetric } from '../lib/themeUnlocks';
+import { awardOpsPoints } from '../lib/opsPoints';
 
 type SessionType = 'box_breathing' | '54321' | 'body_scan' | 'rage_drain' | 'intel_dump';
 type Screen = 'home' | 'active' | 'complete';
@@ -494,6 +495,7 @@ export default function Grounding() {
         });
         await logEvent(user.id, 'grounding_session', { type: activeType, duration });
         incrementThemeMetric(user.id, 'module_days').catch(() => {});
+        awardOpsPoints(user.id, 2, 'grounding_complete').catch(() => {});
       } catch {
         // Non-blocking
       }
@@ -559,9 +561,9 @@ export default function Grounding() {
       <SafeAreaView style={[styles.root, { backgroundColor: T.bg }]}>
         <StatusBar barStyle="light-content" />
         <View style={styles.sessionHeader}>
-          <TouchableOpacity onPress={reset} style={styles.backBtn}>
-            <ChevronLeft size={22} color={T.muted} />
-            <Text style={[styles.backLabel, { color: T.muted }]}>EXIT</Text>
+          <TouchableOpacity onPress={reset} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 }} activeOpacity={0.7}>
+            <ChevronLeft size={16} color={T.accent} />
+            <Text style={{ fontSize: 12, color: T.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text>
           </TouchableOpacity>
           <Text style={[styles.sessionTitle, { color: T.text }]}>{activeInfo?.label}</Text>
           <View style={{ width: 60 }} />
@@ -616,11 +618,9 @@ export default function Grounding() {
           </Text>
         )}
 
-        <TouchableOpacity
-          onPress={reset}
-          style={[styles.backToHome, { borderColor: T.border }]}
-        >
-          <Text style={[styles.backToHomeText, { color: T.muted }]}>BACK TO GROUND</Text>
+        <TouchableOpacity onPress={reset} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', backgroundColor: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, marginTop: 16 }} activeOpacity={0.7}>
+          <ChevronLeft size={16} color={T.accent} />
+          <Text style={{ fontSize: 12, color: T.accent, fontWeight: '600', letterSpacing: 1 }}>BACK</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

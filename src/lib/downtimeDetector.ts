@@ -1,6 +1,21 @@
 import * as Notifications from 'expo-notifications';
 import { supabase } from './supabase';
 
+/**
+ * Returns true if the user is currently in a grounding session (within last 35 minutes).
+ * Used by noseyEngine to avoid interrupting active grounding.
+ */
+export async function isInGroundingWindow(userId: string): Promise<boolean> {
+  const thirtyFiveMinutesAgo = new Date(Date.now() - 35 * 60 * 1000).toISOString();
+  const { data } = await supabase
+    .from('grounding_sessions')
+    .select('id')
+    .eq('user_id', userId)
+    .gte('created_at', thirtyFiveMinutesAgo)
+    .limit(1);
+  return (data?.length ?? 0) > 0;
+}
+
 // Notification category for clarifying unknown e-transfers
 export const CLARIFY_CATEGORY = 'clarify_transfer';
 
@@ -59,20 +74,25 @@ export async function checkAndSendPendingClarifications(userId: string) {
           last_prompted_at: new Date().toISOString(),
         })
         .eq('id', clarification.id);
+
+      // Also enqueue as a nosey question with the two most likely envelope options
+      // Inline insert to avoid circular dependency (noseyEngine imports from this file)
+      await supabase.from('nosey_questions_queue').insert({
+        user_id: userId,
+        priority: 8,
+        question_type: 'clarification',
+        question_text: `${clarification.transaction_name} — $${Math.abs(clarification.amount).toFixed(2)}. Which envelope?`,
+        option_a: 'groceries',
+        option_b: 'overflow',
+        allow_custom: true,
+        context: { transaction_name: clarification.transaction_name, amount: clarification.amount },
+        linked_clarification_id: clarification.id,
+        status: 'pending',
+      }).then(() => {}, () => {});
     } catch {
       // Notification scheduling failed — not fatal
     }
   }
-}
-
-/**
- * Returns true when the current time is in a grounding-friendly window:
- * evening (8pm–midnight) or early morning (midnight–9am).
- * These are the highest-risk periods for anxiety/overwhelm spirals.
- */
-export function isInGroundingWindow(): boolean {
-  const hour = new Date().getHours();
-  return hour >= 20 || hour < 9;
 }
 
 // Called when user taps a notification action button

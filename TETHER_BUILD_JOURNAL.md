@@ -1367,6 +1367,73 @@ alter table user_profiles
 add column if not exists theme_progress jsonb default '{}';
 ```
 
+### Session 43 — April 3, 2026
+**Hidden Era Targets Rebalanced + ELVEN Era Added**
+
+- ✅ `src/lib/themeUnlocks.ts` — `HIDDEN_THEME_CONFIGS` targets updated:
+  - MARAUDER: workout_days → **60**
+  - BLACKTIDE: budget_days+save_decisions → **45**
+  - FROSTBORN: weekly_workout_streaks → **90**
+  - MIMIC: module_days → **60**
+  - SYNTHRAID: wearable_consistency → **50**
+- ✅ New era added: **ELVEN** — metric: `module_days`, target: 45, bridge key: `GREENLEAF`, bridgeDays: 5
+- ✅ APK `build-1775330382622.apk` — shipped ✅
+
+### Session 44 — April 4, 2026
+**Back Button Standardization + Nosey Question System + Home Base Screen + GlitchReveal**
+
+**PART 1 — Back Button Standardization**
+- ✅ All plain-text back buttons replaced with pill-style: `bg: T.card, borderWidth: 1, borderColor: T.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14` + `ChevronLeft size={16}` + `fontSize: 12, fontWeight: '600', letterSpacing: 1` in `T.accent`
+- ✅ Files updated: `BudgetTracker.tsx` (4 locations), `FitnessScreen.tsx` (5 locations), `GymScreen.tsx` (2 locations), `GymScreenD.tsx` (2 locations), `Grounding.tsx` (2 locations), `FamilyFuel.tsx`, `NightmareSettings.tsx`, `HouseholdSetupScreen.tsx`
+
+**PART 2 — Nosey Question System**
+- ✅ `src/lib/noseyEngine.ts` (NEW) — full nosey question engine:
+  - 8-item CLOSERS pool (mood/physical prompts, never money-last)
+  - `isGoodWindow()` — blocks: 10pm–8am, HRV <30, grounding session active (DB check), historically low answer rate at this hour
+  - `noseyQuestionsToAsk()` — pulls highest-priority pending questions from queue
+  - `noseyQuestionTime()` — fires push if good window + pending questions
+  - `answerQuestion()` — records answer, logs timing, extracts keywords → journal
+  - `logIntelDropToJournal()` — saves intel drops to `journal_entries`
+  - `addCloser()` — inserts a fresh closer into queue
+- ✅ `src/lib/downtimeDetector.ts` — `isInGroundingWindow()` rewritten as async DB version (queries `grounding_sessions` last 35 min). Inline nosey queue insert added to `checkAndSendPendingClarifications` (avoids circular import).
+- ✅ `src/context/UserContext.tsx` — `noseyQuestionTime` wired into `syncHealthData` after wearable_consistency increment; push token fetch + Expo push API call inlined.
+- ✅ `src/screens/WarRoom.tsx` — `logIntelDropToJournal` called after intel_drop and intel_text events.
+- ✅ Supabase migrations applied:
+  - `nosey_questions_queue` (user_id, priority, question_type, question_text, option_a, option_b, allow_custom, context, status, linked_clarification_id)
+  - `nosey_timing_log` (user_id, question_id, asked_at, hour_of_day, answered, response_time_seconds)
+  - `journal_entries` (user_id, entry_type, content, keywords, source_event_id, source_event_type)
+
+**PART 3 — Home Base Screen**
+- ✅ `src/screens/HomeBase.tsx` (NEW) — split-view household base:
+  - User left half / partner right half, ops points badge in header
+  - 8 upgrades (4 personal, 4 shared), each with Icon, cost, requires, desc
+  - Base level 1–5 from total upgrades vs thresholds [0,3,6,10,15], XP bar
+  - Zombie siege: fires every 21 days, survival = upgrades >= level×3, awards +10 ops each
+  - Confirm purchase modal with ops point check
+  - UNLINKED state if no house_name or no partner
+- ✅ `src/lib/opsPoints.ts` (NEW) — `awardOpsPoints(userId, amount, reason)` — non-blocking DB increment + logEvent
+- ✅ Ops points wired: WarRoom mission_complete (+2), FitnessScreen workout_logged (+3), BudgetTracker budget_logged (+1), Grounding grounding_complete (+2), JointOps joint_ops_complete (+5)
+- ✅ `App.tsx` — BASE tab added between ARMORY and SETTINGS (Home icon, label: 'BASE')
+- ✅ Supabase migrations applied:
+  - `home_base` (user1_id, user2_id, house_name, base_level, upgrades jsonb, ops_points_user1, ops_points_user2, last_zombie_siege)
+  - `ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS ops_points integer DEFAULT 0`
+
+**PART 4 — GlitchReveal Component**
+- ✅ `src/components/GlitchReveal.tsx` (NEW) — full-screen 4-phase animation:
+  - Phase 1 (0–800ms): 4 edge lines + rapid opacity flicker every 80ms
+  - Phase 2 (800–1600ms): black overlay fade-in + 200 random 2×2px noise squares
+  - Phase 3 (1600–2400ms): "SIGNAL DETECTED" + bridge name fade in
+  - Phase 4 (2400ms+): card spring-slides from bottom — theme name, fill bar, encouragement, "TAP TO CONTINUE"
+  - Fires once per theme at 50% progress, tracked via AsyncStorage `glitch_shown_{themeKey}`
+- ✅ `src/lib/themeUnlocks.ts` — `glitchReadyAt?: string | null` added to `ThemeProgressEntry`; set when crossing 50% threshold in `incrementThemeMetric`
+- ✅ `src/screens/WarRoom.tsx` — `pendingGlitch` state + useFocusEffect check for unshown glitches in `theme_progress`; renders `<GlitchReveal>` overlay when triggered
+
+**Tab order:** WAR ROOM · WORK · GROUND · FUEL · FITNESS · ARMORY · BASE · SETTINGS
+
+**TypeScript:** Clean compile ✅ (1 fix: `.then(() => {}).catch()` → `.then(() => {}, () => {})` in downtimeDetector.ts)
+
+- ✅ APK `build-1775334284382.apk` (79 MB) — shipped ✅
+
 ### Immediate (next build session)
 1. **Goal unlock flow** — consistency detection fires push, War Room goal card with progress bar
 2. **Macro tiers** — protein-only unlocks after goal set, full macros behind manual toggle
@@ -3355,5 +3422,23 @@ Pressing GRANT ACCESS in Settings crashed the app. `requestPermission()` from `r
 
 ### Tabs (updated)
 WAR ROOM · WORK · GROUND · FUEL · IRON/FITNESS · ARMORY · SETTINGS
+
+---
+
+## SESSION 43 — HIDDEN ERA TARGET REBALANCE
+*April 4, 2026*
+**APK:** `build-1775330382622.apk` ✅
+
+### Changes
+- `src/lib/themeUnlocks.ts` — updated `HIDDEN_THEME_CONFIGS` targets only. No logic changes.
+
+| Era | Metric | Old Target | New Target |
+|---|---|---|---|
+| MARAUDER | workout_days | 21 | 60 |
+| BLACKTIDE | budget_days | 14 | 45 |
+| FROSTBORN | workout_days | 28 | 90 |
+| MIMIC | module_days | 14 | 60 |
+| SYNTHRAID | wearable_consistency | 21 | 50 |
+| ELVEN *(new)* | module_days | — | 45 (bridge: GREENLEAF, 5 days) |
 
 *To resume in a new chat: upload this file and say "Resume Tether build"*

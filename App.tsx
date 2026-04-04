@@ -16,7 +16,8 @@ import SignalButton from './src/components/SignalButton';
 import HouseholdSetupScreen from './src/screens/HouseholdSetupScreen';
 import Grounding from './src/screens/Grounding';
 import FamilyFuel from './src/screens/FamilyFuel';
-import { Wind, Flame } from 'lucide-react-native';
+import HomeBase from './src/screens/HomeBase';
+import { Wind, Flame, Home } from 'lucide-react-native';
 
 const Tab = createBottomTabNavigator();
 
@@ -192,6 +193,14 @@ function MainApp() {
           options={{
             tabBarLabel: labels.armory,
             tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18 }}>{icons.armory}</Text>,
+          }}
+        />
+        <Tab.Screen
+          name="Base"
+          component={HomeBase}
+          options={{
+            tabBarLabel: 'BASE',
+            tabBarIcon: ({ color }) => <Home size={20} color={color} />,
           }}
         />
         <Tab.Screen
