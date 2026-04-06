@@ -13,6 +13,8 @@ import { logEvent } from '../lib/logEvent';
 import { incrementThemeMetric } from '../lib/themeUnlocks';
 import { ANTHROPIC_API_KEY } from '../lib/config';
 import { getHouseholdPlaylistId, getValidAccessToken } from '../lib/spotifyService';
+import { buildChecklist, calculateGrade, recordBlitzSession, type GradeConfig, type ChecklistItem } from '../lib/blitzEngine';
+import { checkBlitzOnboarding } from '../lib/downtimeDetector';
 
 // ── TYPES ──────────────────────────────────────────────────────────────────────
 type MissionStatus = 'locked_in' | 'holding' | 'scattered' | 'critical';
@@ -67,6 +69,11 @@ export default function Blitz({ onClose }: { onClose: () => void }) {
   const [completed, setCompleted] = useState<CompletedMission[]>([]);
   const [areasSecured, setAreasSecured] = useState<string[]>([]);
 
+  // Grade + checklist
+  const [missionGrade, setMissionGrade] = useState<GradeConfig | null>(null);
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
+  const [sessionOpsTotal, setSessionOpsTotal] = useState(0);
+
   // Debrief
   const [debriefCount, setDebriefCount] = useState(0);
   const debriefRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -81,6 +88,7 @@ export default function Blitz({ onClose }: { onClose: () => void }) {
   // ── LIFECYCLE ────────────────────────────────────────────────────────────────
   useEffect(() => {
     requestNotificationPermission();
+    if (user?.id) checkBlitzOnboarding(user.id).catch(() => {});
     const sub = AppState.addEventListener('change', handleAppStateChange);
     return () => {
       sub.remove();
@@ -260,11 +268,21 @@ Rules:
     stopTimer();
     if (!mission) return;
 
+    const grade = calculateGrade(elapsedRef.current, mission.minutes);
+    setMissionGrade(grade);
+    setChecklist(buildChecklist());
+
     const newCompleted = [...completed, { room: mission.room, zone: mission.zone, elapsed: elapsedRef.current }];
     setCompleted(newCompleted);
 
     if (!areasSecured.includes(mission.room)) {
       setAreasSecured(prev => [...prev, mission.room]);
+    }
+
+    if (user?.id) {
+      recordBlitzSession(user.id, mission, elapsedRef.current, false)
+        .then(g => setSessionOpsTotal(t => t + g.opsPoints))
+        .catch(() => {});
     }
 
     Animated.sequence([
@@ -437,20 +455,68 @@ Rules:
 
   // ── DEBRIEF SCREEN ───────────────────────────────────────────────────────────
   if (screen === 'debrief') {
+    const allChecked = checklist.length > 0 && checklist.every(i => i.done);
     return (
       <View style={s.overlay}>
         <SafeAreaView style={s.container}>
           <Animated.View style={[s.celebrationFlash, { opacity: flashAnim }]} />
-          <View style={s.debriefWrap}>
+          <ScrollView contentContainerStyle={s.debriefScroll}>
             <Text style={s.areaSecured}>AREA SECURED</Text>
             <Text style={s.missionRoomDebrief}>{mission?.room}</Text>
+
+            {/* Grade badge */}
+            {missionGrade && (
+              <View style={[s.gradeBadge, { backgroundColor: missionGrade.color }]}>
+                <Text style={s.gradeText}>{missionGrade.grade}</Text>
+                <Text style={s.gradeLabel}>{missionGrade.label}</Text>
+              </View>
+            )}
+            {missionGrade && (
+              <Text style={s.gradeVerdict}>{missionGrade.verdict}</Text>
+            )}
+
             <Text style={s.debriefLabel}>DEBRIEF</Text>
             <Text style={s.debriefTimer}>{formatTime(debriefCount)}</Text>
             <Text style={s.debriefSub}>2 minutes. Rest.</Text>
+
+            {/* Post-clean checklist */}
+            {checklist.length > 0 && (
+              <View style={s.checklistWrap}>
+                <Text style={s.checklistTitle}>POST-CLEAN CHECK</Text>
+                {checklist.map((item, i) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={s.checklistRow}
+                    onPress={() => {
+                      const next = checklist.map((c, j) => j === i ? { ...c, done: !c.done } : c);
+                      setChecklist(next);
+                      // Award bonus ops when all items checked
+                      if (next.every(c => c.done) && user?.id) {
+                        import('../lib/opsPoints').then(({ awardOpsPoints }) => {
+                          awardOpsPoints(user.id!, 10, 'blitz_checklist_bonus').catch(() => {});
+                          setSessionOpsTotal(t => t + 10);
+                        });
+                      }
+                    }}
+                  >
+                    <Text style={[s.checklistCheck, { color: item.done ? T.accent : T.muted }]}>
+                      {item.done ? '✓' : '○'}
+                    </Text>
+                    <Text style={[s.checklistLabel, { color: item.done ? T.text : T.muted, textDecorationLine: item.done ? 'line-through' : 'none' }]}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {allChecked && (
+                  <Text style={[s.checklistBonus, { color: T.accent }]}>+10 OPS POINTS BONUS</Text>
+                )}
+              </View>
+            )}
+
             <TouchableOpacity onPress={skipDebrief} style={s.skipDebrief}>
-              <Text style={s.skipDebriefText}>SKIP</Text>
+              <Text style={s.skipDebriefText}>SKIP REST</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         </SafeAreaView>
       </View>
     );
@@ -527,6 +593,9 @@ Rules:
               {mission?.emoji}  {completed.length} MISSION{completed.length !== 1 ? 'S' : ''} COMPLETE
             </Text>
             <Text style={s.reportTime}>⏱  {formatTime(totalSecs)} IN THE FIELD</Text>
+            {sessionOpsTotal > 0 && (
+              <Text style={[s.reportOps, { color: T.accent }]}>+{sessionOpsTotal} OPS POINTS EARNED</Text>
+            )}
 
             {areasSecured.length > 0 && (
               <View style={s.areasWrap}>
@@ -648,12 +717,23 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
       position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
       backgroundColor: T.accent, zIndex: -1,
     },
+    debriefScroll: { padding: 24, paddingTop: 40, alignItems: 'center', gap: 8 },
     debriefWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
     areaSecured: { color: T.accent, fontSize: 28, fontWeight: '900', letterSpacing: 3 },
-    missionRoomDebrief: { color: T.text, fontSize: 20, fontWeight: '700', letterSpacing: 2, marginBottom: 32 },
+    missionRoomDebrief: { color: T.text, fontSize: 20, fontWeight: '700', letterSpacing: 2, marginBottom: 16 },
+    gradeBadge: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 16, paddingHorizontal: 20, paddingVertical: 10, marginVertical: 8 },
+    gradeText: { fontSize: 28, fontWeight: '900', color: '#0a0a0a' },
+    gradeLabel: { fontSize: 12, fontWeight: '800', letterSpacing: 3, color: '#0a0a0a' },
+    gradeVerdict: { color: T.muted, fontSize: 13, textAlign: 'center', letterSpacing: 0.5, marginBottom: 16 },
     debriefLabel: { color: T.muted, fontSize: 11, fontWeight: '700', letterSpacing: 3 },
     debriefTimer: { color: T.text, fontSize: 56, fontWeight: '900', fontVariant: ['tabular-nums'] },
     debriefSub: { color: T.muted, fontSize: 14, letterSpacing: 1 },
+    checklistWrap: { width: '100%', backgroundColor: T.card, borderRadius: 12, borderWidth: 1, borderColor: T.border, padding: 16, marginTop: 16, gap: 10 },
+    checklistTitle: { color: T.muted, fontSize: 10, fontWeight: '700', letterSpacing: 2, marginBottom: 4 },
+    checklistRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4 },
+    checklistCheck: { fontSize: 18, width: 22 },
+    checklistLabel: { flex: 1, fontSize: 14 },
+    checklistBonus: { fontSize: 11, fontWeight: '800', letterSpacing: 2, textAlign: 'center', marginTop: 8 },
     skipDebrief: { marginTop: 32 },
     skipDebriefText: { color: T.muted, fontSize: 12, letterSpacing: 2 },
 
@@ -662,6 +742,7 @@ function makeStyles(T: ReturnType<typeof import('../themes').getTheme>) {
     reportTitle: { color: T.text, fontSize: 24, fontWeight: '900', letterSpacing: 3, marginBottom: 16 },
     reportMissions: { color: T.text, fontSize: 20, fontWeight: '800', letterSpacing: 1 },
     reportTime: { color: T.muted, fontSize: 16 },
+    reportOps: { fontSize: 13, fontWeight: '800', letterSpacing: 2, marginTop: 4 },
     areasWrap: {
       backgroundColor: T.card, borderRadius: 12, padding: 16,
       borderWidth: 1, borderColor: T.border, marginTop: 8,

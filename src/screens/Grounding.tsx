@@ -4,9 +4,10 @@ import {
   TextInput, Animated, SafeAreaView, StatusBar, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
 import {
   Wind, Eye, Hand, Ear, Smile, Zap, Brain, ChevronLeft,
-  Activity, Target, AlertTriangle,
+  Activity, Target, AlertTriangle, Headphones,
 } from 'lucide-react-native';
 import { useUser } from '../context/UserContext';
 import { supabase } from '../lib/supabase';
@@ -14,7 +15,7 @@ import { logEvent } from '../lib/logEvent';
 import { incrementThemeMetric } from '../lib/themeUnlocks';
 import { awardOpsPoints } from '../lib/opsPoints';
 
-type SessionType = 'box_breathing' | '54321' | 'body_scan' | 'rage_drain' | 'intel_dump';
+type SessionType = 'box_breathing' | '54321' | 'body_scan' | 'rage_drain' | 'intel_dump' | 'guided_breathing' | 'guided_body_scan';
 type Screen = 'home' | 'active' | 'complete';
 
 const SESSION_TYPES: {
@@ -28,7 +29,9 @@ const SESSION_TYPES: {
   { id: '54321',         label: '5-4-3-2-1',     subtitle: 'Sensory anchor', Icon: Eye,  durationMin: 3 },
   { id: 'body_scan',     label: 'BODY SCAN',      subtitle: 'Head to feet',  Icon: Activity, durationMin: 5 },
   { id: 'rage_drain',    label: 'RAGE DRAIN',     subtitle: 'Physical reset', Icon: Zap, durationMin: 2 },
-  { id: 'intel_dump',    label: 'INTEL DUMP',     subtitle: 'Brain drain',   Icon: Brain, durationMin: 5 },
+  { id: 'intel_dump',        label: 'INTEL DUMP',          subtitle: 'Brain drain',         Icon: Brain,       durationMin: 5  },
+  { id: 'guided_breathing',  label: 'GUIDED BREATHING',    subtitle: '5-min narrated reset', Icon: Headphones,  durationMin: 5  },
+  { id: 'guided_body_scan',  label: 'GUIDED BODY SCAN',    subtitle: '10-min head to feet',  Icon: Headphones,  durationMin: 10 },
 ];
 
 const BRAIN_STATE_OPTIONS = [
@@ -466,6 +469,115 @@ function IntelDump({ T }: { T: any }) {
   );
 }
 
+// ── GUIDED MEDITATION ─────────────────────────────────────────────────────────
+
+interface ScriptLine { text: string; pauseAfter: number }
+
+const BOX_BREATHING_SCRIPT: ScriptLine[] = [
+  { text: 'Close your eyes. Settle in. Breathe out completely.', pauseAfter: 4000 },
+  { text: 'Inhale slowly through your nose for four counts.', pauseAfter: 5000 },
+  { text: 'Hold. Keep it steady. Four counts.', pauseAfter: 5000 },
+  { text: 'Exhale fully through your mouth. Four counts.', pauseAfter: 5000 },
+  { text: 'Hold empty. Four counts.', pauseAfter: 5000 },
+  { text: 'Inhale again. Slow and steady.', pauseAfter: 5000 },
+  { text: 'Hold. You are safe.', pauseAfter: 5000 },
+  { text: 'Exhale. Let it go completely.', pauseAfter: 5000 },
+  { text: 'Hold. Still. Quiet.', pauseAfter: 5000 },
+  { text: 'One more round. Inhale.', pauseAfter: 5000 },
+  { text: 'Hold.', pauseAfter: 5000 },
+  { text: 'Exhale.', pauseAfter: 5000 },
+  { text: 'Hold. And release.', pauseAfter: 4000 },
+  { text: 'Good. Breathe normally. You reset.', pauseAfter: 3000 },
+];
+
+const BODY_SCAN_SCRIPT: ScriptLine[] = [
+  { text: 'Close your eyes. Feel the full weight of your body.', pauseAfter: 4000 },
+  { text: 'Start at the top of your head. Notice any tightness. Let it go.', pauseAfter: 6000 },
+  { text: 'Move down to your forehead and jaw. Unclench. Soften.', pauseAfter: 6000 },
+  { text: 'Your neck and shoulders. Drop them away from your ears.', pauseAfter: 6000 },
+  { text: 'Your chest. Notice it rise and fall. You are breathing.', pauseAfter: 6000 },
+  { text: 'Your arms. Heavy. Warm. At rest.', pauseAfter: 5000 },
+  { text: 'Your hands. Open them slightly. Release any grip.', pauseAfter: 5000 },
+  { text: 'Your belly. Soft. No holding here.', pauseAfter: 5000 },
+  { text: 'Your lower back. Let it press into whatever is beneath you.', pauseAfter: 6000 },
+  { text: 'Your hips and thighs. Heavy and still.', pauseAfter: 5000 },
+  { text: 'Your knees and calves. No tension required here.', pauseAfter: 5000 },
+  { text: 'Your feet. Let them be heavy. Rooted.', pauseAfter: 6000 },
+  { text: 'Scan back up. Notice if anything wants attention.', pauseAfter: 6000 },
+  { text: 'Breathe into it. Just notice. No fixing needed.', pauseAfter: 6000 },
+  { text: 'Take one slow, full breath. And when you are ready, open your eyes.', pauseAfter: 5000 },
+  { text: 'You did the work. That was enough.', pauseAfter: 3000 },
+];
+
+function GuidedMeditation({ type, T, onComplete }: { type: 'guided_breathing' | 'guided_body_scan'; T: any; onComplete: () => void }) {
+  const script = type === 'guided_breathing' ? BOX_BREATHING_SCRIPT : BODY_SCAN_SCRIPT;
+  const [lineIdx, setLineIdx] = useState(0);
+  const [done, setDone] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  function speakLine(idx: number) {
+    if (idx >= script.length) {
+      Speech.stop();
+      setDone(true);
+      onComplete();
+      return;
+    }
+    const line = script[idx];
+    Speech.speak(line.text, {
+      language: 'en-US',
+      pitch: 0.95,
+      rate: 0.85,
+      onDone: () => {
+        // Fade out then advance
+        Animated.timing(opacity, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
+          setLineIdx(idx + 1);
+          Animated.timing(opacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+          timeoutRef.current = setTimeout(() => speakLine(idx + 1), line.pauseAfter);
+        });
+      },
+    });
+  }
+
+  useEffect(() => {
+    speakLine(0);
+    return () => {
+      Speech.stop();
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const progress = Math.min(lineIdx / script.length, 1);
+
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 32 }}>
+      {/* Progress bar */}
+      <View style={{ width: '100%', height: 2, backgroundColor: T.border, borderRadius: 2 }}>
+        <View style={{ width: `${Math.round(progress * 100)}%` as any, height: 2, backgroundColor: T.accent, borderRadius: 2 }} />
+      </View>
+
+      {done ? (
+        <Text style={{ color: T.accent, fontSize: 22, fontWeight: '800', letterSpacing: 3 }}>COMPLETE</Text>
+      ) : (
+        <Animated.Text style={{ color: T.text, fontSize: 18, lineHeight: 28, textAlign: 'center', opacity, letterSpacing: 0.3 }}>
+          {script[lineIdx]?.text ?? ''}
+        </Animated.Text>
+      )}
+
+      <Text style={{ color: T.muted, fontSize: 11, letterSpacing: 2 }}>
+        {lineIdx + 1} / {script.length}
+      </Text>
+
+      <TouchableOpacity
+        onPress={() => { Speech.stop(); if (timeoutRef.current) clearTimeout(timeoutRef.current); onComplete(); }}
+        style={{ paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: T.border }}
+      >
+        <Text style={{ color: T.muted, fontSize: 11, letterSpacing: 2 }}>END SESSION</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────────
 export default function Grounding() {
   const { user, themeTokens: T } = useUser();
@@ -569,18 +681,23 @@ export default function Grounding() {
           <View style={{ width: 60 }} />
         </View>
         <View style={styles.sessionBody}>
-          {activeType === 'box_breathing' && <BoxBreathing T={T} />}
-          {activeType === '54321'         && <Sensing T={T} />}
-          {activeType === 'body_scan'     && <BodyScan T={T} />}
-          {activeType === 'rage_drain'    && <RageDrain T={T} />}
-          {activeType === 'intel_dump'    && <IntelDump T={T} />}
+          {activeType === 'box_breathing'     && <BoxBreathing T={T} />}
+          {activeType === '54321'              && <Sensing T={T} />}
+          {activeType === 'body_scan'          && <BodyScan T={T} />}
+          {activeType === 'rage_drain'         && <RageDrain T={T} />}
+          {activeType === 'intel_dump'         && <IntelDump T={T} />}
+          {(activeType === 'guided_breathing' || activeType === 'guided_body_scan') && (
+            <GuidedMeditation type={activeType} T={T} onComplete={finishSession} />
+          )}
         </View>
-        <TouchableOpacity
-          onPress={finishSession}
-          style={[styles.doneBtn, { backgroundColor: T.accent + '18', borderColor: T.accent }]}
-        >
-          <Text style={[styles.doneBtnText, { color: T.accent }]}>I'M DONE — LOG SESSION</Text>
-        </TouchableOpacity>
+        {activeType !== 'guided_breathing' && activeType !== 'guided_body_scan' && (
+          <TouchableOpacity
+            onPress={finishSession}
+            style={[styles.doneBtn, { backgroundColor: T.accent + '18', borderColor: T.accent }]}
+          >
+            <Text style={[styles.doneBtnText, { color: T.accent }]}>I'M DONE — LOG SESSION</Text>
+          </TouchableOpacity>
+        )}
       </SafeAreaView>
     );
   }

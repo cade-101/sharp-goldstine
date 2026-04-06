@@ -1,5 +1,5 @@
 # TETHER — BUILD JOURNAL
-*Last updated: April 1, 2026 (Sessions 27–35)*
+*Last updated: April 6, 2026 (Sessions 27–52)*
 
 ---
 
@@ -30,6 +30,7 @@
 - Rule 5: Update the journal at the end of every session.
 
 **Known correct solutions:**
+- **Timer must survive background/lock → use `Notifications.scheduleNotificationAsync` with a future `date` trigger, NOT `setInterval` in background.** Store `Date.now()` as wall-clock start in AsyncStorage. On foreground return: cancel the OS notification, recalculate remaining from `Date.now() - startTime`, update UI. (confirmed Session 52)
 - **ANDROID_HOME not set in non-interactive shell → Gradle can't find SDK:** Always run `ANDROID_HOME=~/Library/Android/sdk eas build --platform android --profile preview --local` — the env var is set in .zshrc but not exported to subshells. (confirmed Session 38)
 - Expo SDK mismatch → `npx expo install expo@latest --fix` → `npm install --legacy-peer-deps` → `npx expo start --clear`
 - EMFILE too many open files → `brew install watchman` — one time, done forever
@@ -3440,5 +3441,156 @@ WAR ROOM · WORK · GROUND · FUEL · IRON/FITNESS · ARMORY · SETTINGS
 | MIMIC | module_days | 14 | 60 |
 | SYNTHRAID | wearable_consistency | 21 | 50 |
 | ELVEN *(new)* | module_days | — | 45 (bridge: GREENLEAF, 5 days) |
+
+---
+
+## SESSION 47 — THEME UNLOCK CHOICE + SETTINGS REBUILD
+*April 5, 2026*
+
+### New files
+- `src/components/ThemeUnlockChoice.tsx` — full-screen unlock moment. Two side panels (dark + warm) slide in from opposite edges on spring(80,14). TOP BADGE slides down after 300ms delay. 17 theme taglines. Sets StatusBar hidden on mount/restore on unmount. Props: `themeKey`, `pairKey`, `onChoose(theme)`, `onDismiss`.
+
+### Modified files
+- `src/screens/SettingsScreen.tsx` — rebuilt theme picker as 3-level drill-down (category → pair → swatches + unlock tasks). Level 1: category rows with theme count + active indicator. Level 2: dual swatch preview per pair + ChevronRight. Level 3: DARK/WARM side-by-side swatchCards, unlock task checklist with 3px progress bars, CheckCircle/Circle icons. Progress loaded via `getThemeUnlockProgress()`. Added Spotify Alarm section: search tracks, select, save URI+name to user_profiles, TEST (Linking.openURL) + REMOVE.
+- `src/screens/WarRoom.tsx` — ThemeUnlockChoice overlay (zIndex 999), reads `theme_unlock_ready` array from user_profiles on focus, applies chosen theme, dequeues + updates `theme_history`. AnimatedCheckbox replaces step check Views. CheckConfetti fires on mission completion (800ms timeout). `calEvents` extended with `endDate`. NOW badge (accent pill) on current event. Duration chip. "📅" button on mission rows for Google Calendar sync.
+
+### Supabase
+- `ALTER TABLE user_profiles ADD COLUMN theme_unlock_ready text[] DEFAULT '{}'`
+- `ALTER TABLE user_profiles ADD COLUMN theme_history jsonb DEFAULT '[]'`
+
+---
+
+## SESSION 48 — BLITZ GRADE SYSTEM + ANIMATED COMPONENTS + GUIDED MEDITATION
+*April 5, 2026*
+
+### New files
+- `src/lib/blitzEngine.ts` — D/C/B/A/S grade system by time ratio. `GRADE_CONFIGS` array with color, verdict, opsPoints. `calculateGrade(elapsed, targetMinutes)`. `buildChecklist()` returns 4 post-clean items. `generateDailyMission(energy)` via Claude Haiku. `recordBlitzSession()` awards ops points + inserts to `clean_sessions`.
+- `src/components/AnimatedCheckbox.tsx` — spring scale on check, animated border color, filled background + "✓" overlay. Props: `checked`, `onToggle`, `color`, `size`.
+- `src/components/CheckConfetti.tsx` — particles spread outward on trigger, fade after 200ms delay. `position: absolute`, `pointerEvents="none"`. Props: `trigger`, `color`, `count`.
+
+### Modified files
+- `src/screens/Blitz.tsx` — debrief shows grade badge (colored bg, letter + verdict), post-clean checklist (tap items → all done = +10 ops bonus), sessionOpsTotal displayed on report screen. ScrollView for debrief content.
+- `src/screens/Grounding.tsx` — added `guided_breathing` + `guided_body_scan` session types. `GuidedMeditation` component: recursive `speakLine(idx)` with `Speech.speak onDone` callback + setTimeout for pauses. BOX_BREATHING_SCRIPT (14 lines) + BODY_SCAN_SCRIPT (16 lines). Progress bar + fade-animated line text.
+- `src/lib/downtimeDetector.ts` — `checkBlitzOnboarding(userId)`: day 1/3/5/7 onboarding push notifications; tracks `blitz_onboarding_sent int[]` in user_profiles.
+
+### Supabase
+- `clean_sessions` — user_id, house_name, mission_title, target_minutes, elapsed_seconds, grade, ops_points, checklist_bonus, created_at. RLS enabled.
+- `ALTER TABLE user_profiles ADD COLUMN blitz_onboarding_sent int[] DEFAULT '{}'`
+
+---
+
+## SESSION 49 — FAMILY ARCHITECT + MORNING SEQUENCE + HOMEWORK + SPORTS
+*April 5, 2026*
+
+### New files
+- `src/screens/FamilyArchitect.tsx` — 6-session onboarding wizard. Sessions: household members (role chips), work/commute context, kids/school, morning sequence builder (± minute offsets from wake time), chore chart, done. Saves to `household_members`, `morning_sequences`, `chore_definitions`, `family_architect_progress`. Progress dots (6), back button per session.
+- `src/lib/morningSequenceEngine.ts` — `scheduleMorningSequence(houseName, wakeHour, wakeMinute)`: loads active sequences from DB, cancels existing morning notifs (by `data.morning_sequence === true`), schedules each step at absolute DATE trigger offset from wake time. `cancelMorningSequence()`.
+- `src/screens/Homework.tsx` — subject picker (7 chips + custom input), 25min work / 5min break Pomodoro timer. expo-speech reminder at 30min continuous mark. startBreak() auto-returns to active with speech announcement. Saves to `homework_sessions` on finish.
+- `src/screens/Sports.tsx` — loads sports_profiles + upcoming sports_events. Add profile form. Event cards with equipment checklist. "REMIND" button schedules push 1hr before event; marks `reminder_sent=true`.
+
+### Modified files
+- `src/screens/WarRoom.tsx` — Family Architect card shown when `house_name && !familyArchitectDone`. FamilyArchitect overlay at zIndex 998 (below ThemeUnlock at 999). useFocusEffect checks `family_architect_progress.completed`.
+
+### Supabase
+- `household_members` — id, house_name, name, role, age_group, created_at. RLS enabled.
+- `morning_sequences` — id, house_name, step_title, offset_minutes, active, created_at. RLS enabled.
+- `chore_definitions` — id, house_name, title, assigned_to, recurrence, points, created_at. RLS enabled.
+- `family_architect_progress` — house_name (PK), completed, session_reached, work_note, school_note, commute_minutes, created_at. RLS enabled.
+- `sports_profiles` — id, user_id, house_name, sport, team_name, created_at. RLS enabled.
+- `sports_events` — id, house_name, sport, opponent, event_date, location, equipment[], reminder_sent, created_at. RLS enabled.
+- `homework_sessions` — id, house_name, subject, duration_seconds, break_count, completed, created_at. RLS enabled.
+
+---
+
+## SESSION 50 — EMAIL INTEL + CHORE ENGINE + BUDGET ENVELOPES
+*April 5–6, 2026*
+
+### New files
+- `src/lib/emailEngine.ts` — privacy-first: reads subject+snippet only, never full body. `fetchGmailInbox()` (Gmail metadata API). `fetchOutlookInbox()` (Microsoft Graph bodyPreview). `categorizeEmails()` via Claude Haiku → bill/appointment/school/action/info/ignore + high/normal/low importance. `saveEmailIntel()` inserts non-ignore emails to DB.
+- `src/lib/choreEngine.ts` — `getOverdueChores(houseName)`: compares last chore_log against recurrence window (daily=1d, weekly=7d). `sendChoreEscalations()`: groups overdue by assigned person, sends push notifications with escalating urgency. `logChoreComplete()`: inserts chore_logs + allowance_ledger (25¢/point).
+- `src/screens/EmailIntel.tsx` — loads email_connections + email_intel. Empty state with privacy note if no connections. High-importance banner. Category filter chips (horizontal ScrollView). Email cards with category icon + importance badge + DONE (markActioned). RefreshCw button triggers full scan cycle.
+
+### Modified files
+- `src/screens/BudgetTracker.tsx` — added 5 envelopes to DEFAULT_ENVELOPES: kids_activities ($200), school ($100), clothing ($100), subscriptions ($80), home_repair ($150).
+
+### Supabase
+- `email_connections` — id, user_id, provider, access_token, refresh_token, expires_at, created_at. RLS enabled.
+- `email_intel` — id, user_id, connection_id, subject, snippet, category, importance, received_at, actioned, created_at. RLS enabled.
+- `chore_logs` — id, chore_id, member_id, house_name, points_earned, completed_at. RLS enabled.
+- `allowance_ledger` — id, member_id, house_name, amount, reason, transaction_type, created_at. RLS enabled.
+
+### TypeScript
+- Fixed `.catch()` on PostgrestFilterBuilder (TS2551) in `emailEngine.ts` and `Homework.tsx` — wrapped in `try/catch` blocks.
+- Final `npx tsc --noEmit` clean. ✅
+
+---
+
+## SESSION 51 — DESPERATE GROCERY MODE
+*April 6, 2026*
+**APK:** `build-1775492178673.apk` ✅
+
+### Changes
+
+#### src/screens/FamilyFuel.tsx
+- Added `I'M DESPERATE` button to FuelHome: full-width, `T.red + '18'` background, AlertTriangle icon, ChevronRight
+- Added complete `DesperateMode` overlay (position absolute, zIndex 100, full-screen over FamilyFuel)
+- 3-stage flow: `questions → loading → list`
+- **Questions** — 6 questions, one at a time, progress dots:
+  - Q1 Days (3/4/5/6/7 stepper — tap advances)
+  - Q2 Who (multi-select chips — NEXT after first selection)
+  - Q3 Spoon level (0–3 single select — tap advances)
+  - Q4 Protein (YES GYMMING / NAH two-button — tap advances)
+  - Q5 Budget ($40-50 / $60-75 / $80-100 / $100+ / As low as possible — tap advances)
+  - Q6 Must haves (TextInput + MAKE MY LIST button / Skip link)
+- **Loading** — 3 pulsing red dots (staggered `Animated.sequence` + `Animated.delay` outside loop), text cycling every 1.5s
+- **API** — calls `claude-sonnet-4-20250514`, max_tokens 1500. Returns JSON array grouped by BREAKFAST/LUNCH/SUPPER/SNACKS/MUST HAVES with name, note, estimated_cost, protein_g_per_serving, spoon_level
+- **Pantry integration** — queries `pantry_items` where `household_id = house_name AND quantity > 0`, passes to Claude prompt as "Already in pantry: ..."
+- **List** — grouped by category, AnimatedCheckbox per item, strikethrough on check, estimated cost right-aligned
+- **Budget check** — queries `budget_expenses` for groceries spending, compares against $400 envelope. Shows ⚠ warning if over, ✓ green if within
+- **ADD TO SHOPPING LIST** — inserts unchecked items to `shopping_list_items` with `list_type: 'household'`, `source: 'desperate_mode'`. Shows "Added ✓" toast then auto-dismisses
+- **SHARE WITH PARTNER** — looks up partner by `house_name + id != user.id`, sends Expo push via `sendPushNotification`
+- **REGENERATE** — resets to questions stage with current answers pre-filled
+- `useFocusEffect` + `useRoute` detects `route.params?.desperateMode === true` → auto-opens on focus
+
+#### src/screens/WarRoom.tsx
+- Added `ShoppingCart` to lucide imports
+- Added GROCERY quick action to quick access row
+  - Icon: ShoppingCart, navigates to `'Fuel'` tab with `{ desperateMode: true }` param
+  - Goes straight to question flow, skipping FamilyFuel home screen
+
+### TypeScript
+- `npx tsc --noEmit` clean ✅
+
+---
+
+## SESSION 52 — WORKDAY RHYTHM TIMER FIX
+*April 6, 2026*
+**APK:** `build-1775493263897.apk` ✅
+
+### Root cause
+`setInterval` in a JS background thread. Android kills JS threads when the screen locks or the app is backgrounded for more than a few minutes. Timer stopped counting. Notifications never fired.
+
+### Fix — src/screens/WorkdayRhythm.tsx
+**Removed:**
+- `expo-background-fetch` and `expo-task-manager` imports
+- `BG_TASK` constant and `TaskManager.defineTask` block
+- `registerBgTask()` function and its `useEffect` call
+- `startBgTimer()` / `stopBgTimer()` functions and `bgTimerRef`
+
+**Added:**
+- `AsyncStorage` import
+- `TIMER_START_KEY`, `TIMER_MODE_KEY`, `TIMER_NOTIF_ID_KEY` AsyncStorage keys
+- `scheduleBlockEndNotification(mode, secondsRemaining)` — cancels any existing scheduled notification, schedules a new one with `trigger: { date: fireDate }`, saves notification ID + wall-clock start time to AsyncStorage
+- `cancelScheduledBlockNotification()` — cancels the OS notification, clears all AsyncStorage keys
+- Android notification channel (`'default'`) with `AndroidImportance.HIGH`, lock-screen visibility, vibration pattern
+
+**Updated:**
+- `handleAppStateChange`: on background → `scheduleBlockEndNotification(mode, secondsRef.current)`. On foreground → cancel OS notification, read `TIMER_START_KEY`, compute `remaining = totalDuration - elapsed`, update UI. If remaining === 0, auto-transition the block.
+- `startFocus`: calls `scheduleBlockEndNotification('focus', FOCUS_DURATION)` after setting mode
+- `reset`: calls `cancelScheduledBlockNotification()` instead of `stopBgTimer()`
+- Foreground `setInterval` block transitions: `cancelScheduledBlockNotification().then(() => scheduleBlockEndNotification(nextMode, duration))` on each auto-transition
+
+### Result
+Timer notification fires correctly even if app is dead, JS thread is killed, or phone is locked for the full 52-minute block. On return to foreground, remaining time is calculated from wall clock — always accurate.
 
 *To resume in a new chat: upload this file and say "Resume Tether build"*

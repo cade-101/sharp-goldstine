@@ -17,6 +17,12 @@ import { incrementThemeMetric } from '../lib/themeUnlocks';
 import { logIntelDropToJournal } from '../lib/noseyEngine';
 import { awardOpsPoints } from '../lib/opsPoints';
 import GlitchReveal from '../components/GlitchReveal';
+import StarField from '../components/StarField';
+import ThemeUnlockChoice from '../components/ThemeUnlockChoice';
+import AnimatedCheckbox from '../components/AnimatedCheckbox';
+import CheckConfetti from '../components/CheckConfetti';
+import FamilyArchitect from './FamilyArchitect';
+import { THEME_WARM_PAIRS } from '../themes';
 import { HIDDEN_THEME_CONFIGS, type ThemeProgressEntry } from '../lib/themeUnlocks';
 import { GroceryNudgeCard } from '../components/GroceryNudgeCard';
 import Blitz from './Blitz';
@@ -27,7 +33,7 @@ import {
   Zap, Target, Wind, AlertTriangle, ChevronRight,
   Moon, Heart, Activity, Footprints,
   Droplets, Coffee, Wine, GlassWater, Flame, Shield,
-  Timer, Dumbbell, Wallet, Settings2,
+  Timer, Dumbbell, Wallet, Settings2, ShoppingCart,
 } from 'lucide-react-native';
 
 const MISSIONS_KEY = 'warroom_missions';
@@ -54,9 +60,9 @@ function getGreeting(hour: number, themeName: string): string {
       EVENING: "DEBRIEF. HOW'D THE DAY GO.",
     },
     ronin: {
-      MORNING: '\u5922\u660e\u3051 \u2014 THE BLADE IS SHARPEST AT DAWN.',
-      AFTERNOON: '\u5348\u5f8c \u2014 STAY FOCUSED ON THE MISSION.',
-      EVENING: '\u5915\u66ae\u308c \u2014 A RONIN REFLECTS AT DUSK.',
+      MORNING: '夢明け — THE BLADE IS SHARPEST AT DAWN.',
+      AFTERNOON: '午後 — STAY FOCUSED ON THE MISSION.',
+      EVENING: '夕暮れ — A RONIN REFLECTS AT DUSK.',
     },
     valkyrie: {
       MORNING: 'THE VALKYRJUR RISE. TODAY WE CLAIM GLORY.',
@@ -64,9 +70,169 @@ function getGreeting(hour: number, themeName: string): string {
       EVENING: 'THE SHIELD WALL RESTS. WELL FOUGHT.',
     },
     form: {
-      MORNING: "Good morning \u2014 what are we building today?",
+      MORNING: "Good morning — what are we building today?",
       AFTERNOON: "How's the energy? Let's keep it moving.",
       EVENING: 'Winding down. You showed up.',
+    },
+    hearth: {
+      MORNING: "Good morning. Here's what today looks like.",
+      AFTERNOON: "How's the day going?",
+      EVENING: 'You made it through today.',
+    },
+    copper: {
+      MORNING: 'The forge is hot. Let\'s work.',
+      AFTERNOON: 'Halfway through. Keep the heat.',
+      EVENING: 'Good work. Let the metal cool.',
+    },
+    spartan: {
+      MORNING: 'The wall holds. Move.',
+      AFTERNOON: 'Hold the line.',
+      EVENING: 'Rest. Tomorrow we fight again.',
+    },
+    centurion: {
+      MORNING: 'All roads lead forward.',
+      AFTERNOON: 'The empire runs on discipline.',
+      EVENING: 'The legion rests. Tomorrow we march.',
+    },
+    viking: {
+      MORNING: "The sea doesn't care. Neither do you.",
+      AFTERNOON: 'Oars in. Keep rowing.',
+      EVENING: 'Make port. Rest.',
+    },
+    shogun: {
+      MORNING: 'The general sees the whole field.',
+      AFTERNOON: 'Command requires patience.',
+      EVENING: 'The court is quiet. Think.',
+    },
+    dynasty: {
+      MORNING: 'The dynasty endures through consistency.',
+      AFTERNOON: 'An empire built one day at a time.',
+      EVENING: 'The court rests. The empire continues.',
+    },
+    templar: {
+      MORNING: 'The order holds.',
+      AFTERNOON: 'Discipline is the shield.',
+      EVENING: 'The vigil ends. Rest, soldier.',
+    },
+    sanctum: {
+      MORNING: 'The sanctuary holds.',
+      AFTERNOON: 'Peace is something you build.',
+      EVENING: 'Vespers. The day is done.',
+    },
+    pharaoh: {
+      MORNING: "The pharaoh's work outlasts the pharaoh.",
+      AFTERNOON: 'Build for eternity.',
+      EVENING: 'Even gods rest.',
+    },
+    oasis: {
+      MORNING: 'Water finds a way.',
+      AFTERNOON: 'Rest where you can. Move when you must.',
+      EVENING: 'The oasis is earned.',
+    },
+    kraken: {
+      MORNING: "The deep doesn't judge. Just depth.",
+      AFTERNOON: 'Pressure makes things stronger.',
+      EVENING: 'Surface when ready.',
+    },
+    leviathan: {
+      MORNING: 'Ancient. Patient. Inevitable.',
+      AFTERNOON: "The deep has its own rhythm.",
+      EVENING: 'Surface when the work is done.',
+    },
+    wendigo: {
+      MORNING: 'The forest is listening.',
+      AFTERNOON: 'Deep woods. Clear head.',
+      EVENING: 'Even the wilderness sleeps.',
+    },
+    phoenix: {
+      MORNING: "You've come back before. You'll come back again.",
+      AFTERNOON: "Still here. That's enough.",
+      EVENING: 'Rest. The fire knows when.',
+    },
+    nebula: {
+      MORNING: "Another orbit around the sun. Let's make it count.",
+      AFTERNOON: "Halfway through. The universe doesn't pause — neither do you.",
+      EVENING: 'The stars are out. So are you.',
+    },
+    aurora: {
+      MORNING: 'The light came back. It always does.',
+      AFTERNOON: 'Steady. Like the northern sky.',
+      EVENING: 'Watch the horizon. Rest.',
+    },
+    dusk: {
+      MORNING: "The dark lifted. You're still here.",
+      AFTERNOON: 'Between the light and dark. Keep moving.',
+      EVENING: 'The sky earns that color. So did you.',
+    },
+    cedar: {
+      MORNING: "The forest was here before you. It'll help.",
+      AFTERNOON: 'Roots first. Then reach.',
+      EVENING: 'The grove rests. So should you.',
+    },
+    ember: {
+      MORNING: 'Still warm. Still going.',
+      AFTERNOON: "Coals don't need to be flames. Just hot.",
+      EVENING: 'Bank the fire. Rest.',
+    },
+    parchment: {
+      MORNING: 'The pages are blank. Write something.',
+      AFTERNOON: 'The library is open. So are you.',
+      EVENING: 'Close the books. Rest.',
+    },
+    bloom: {
+      MORNING: 'Something is growing. Let it.',
+      AFTERNOON: 'Midday light. Keep tending.',
+      EVENING: 'Gardens rest at dusk.',
+    },
+    wraith: {
+      MORNING: 'Between the worlds.',
+      AFTERNOON: 'Unseen doesn\'t mean absent.',
+      EVENING: 'Even wraiths need rest.',
+    },
+    solstice: {
+      MORNING: 'The longest day. Make it count.',
+      AFTERNOON: "Sun's still up. So are you.",
+      EVENING: "Solstice ends. You don't.",
+    },
+    druid: {
+      MORNING: 'The stones remember.',
+      AFTERNOON: 'Ancient knowledge. Modern use.',
+      EVENING: 'The grove sleeps. So should you.',
+    },
+    grove: {
+      MORNING: 'The grove grows what it needs.',
+      AFTERNOON: 'Roots first. Then reach.',
+      EVENING: 'Even sacred places sleep.',
+    },
+    slate: {
+      MORNING: 'Good morning.',
+      AFTERNOON: 'Afternoon.',
+      EVENING: 'Evening.',
+    },
+    forge: {
+      MORNING: 'The stronghold opens at dawn.',
+      AFTERNOON: 'The forge never cools.',
+      EVENING: 'The gates close. Rest.',
+    },
+    arcane: {
+      MORNING: 'The vault opens at dawn.',
+      AFTERNOON: 'Knowledge is its own power.',
+      EVENING: 'The archives rest. So should you.',
+    },
+    dragonfire: {
+      MORNING: 'The fire rises.',
+      AFTERNOON: 'Steady heat. Keep the flame.',
+      EVENING: 'Even dragons sleep.',
+    },
+    void: {
+      MORNING: 'Operating 10 steps ahead.',
+      AFTERNOON: 'The signal is clear. Stay on mission.',
+      EVENING: 'Systems offline. Recharge.',
+    },
+    verdant: {
+      MORNING: 'Patient. Relentless. Rooted.',
+      AFTERNOON: 'The forest grows quietly.',
+      EVENING: 'Root down. Rest.',
     },
   };
 
@@ -197,8 +363,18 @@ export default function WarRoom() {
   const [showContainerPicker, setShowContainerPicker] = useState(false);
 
   // Calendar
-  const [calEvents, setCalEvents] = useState<Array<{ id: string; title: string; startDate: string }>>([]);
+  const [calEvents, setCalEvents] = useState<Array<{ id: string; title: string; startDate: string; endDate: string }>>([]);
   const [calPermission, setCalPermission] = useState(false);
+
+  // Theme unlock choice
+  const [pendingThemeUnlock, setPendingThemeUnlock] = useState<{ themeKey: string; pairKey: string | null } | null>(null);
+
+  // Confetti — tracks which mission idx just fired
+  const [confettiMission, setConfettiMission] = useState<number | null>(null);
+
+  // Family Architect setup prompt
+  const [showFamilyArchitect, setShowFamilyArchitect] = useState(false);
+  const [familyArchitectDone, setFamilyArchitectDone] = useState(true);
 
   // Grocery nudges
   const [nudges, setNudges] = useState<Array<{
@@ -294,6 +470,34 @@ export default function WarRoom() {
       })();
     }
     if (goalUnlockReady && !user?.goal_unlocked) loadGoalOptions();
+    // Check family architect completion
+    if (user?.house_name) {
+      (async () => {
+        try {
+          const { data } = await supabase.from('family_architect_progress')
+            .select('completed').eq('house_name', user.house_name).maybeSingle();
+          setFamilyArchitectDone(data?.completed ?? false);
+        } catch { /* non-blocking */ }
+      })();
+    }
+    // Check for pending theme unlock choices
+    if (user?.id) {
+      (async () => {
+        try {
+          const { data } = await supabase
+            .from('user_profiles')
+            .select('theme_unlock_ready')
+            .eq('id', user.id)
+            .single();
+          const queue: string[] = data?.theme_unlock_ready ?? [];
+          if (queue.length > 0) {
+            const themeKey = queue[0];
+            const pairKey = THEME_WARM_PAIRS[themeKey] ?? null;
+            setPendingThemeUnlock({ themeKey, pairKey });
+          }
+        } catch { /* non-blocking */ }
+      })();
+    }
     // Load today's nutrition check-in
     if (user?.id && (user?.macro_tier ?? 0) >= 1) {
       const today = new Date().toISOString().split('T')[0];
@@ -475,11 +679,12 @@ export default function WarRoom() {
       events
         .filter(e => e.title)
         .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
-        .slice(0, 4)
+        .slice(0, 6)
         .map(e => ({
           id: e.id,
           title: e.title,
           startDate: String(e.startDate),
+          endDate: String(e.endDate ?? e.startDate),
         }))
     );
   }
@@ -491,6 +696,33 @@ export default function WarRoom() {
     const ampm = h >= 12 ? 'pm' : 'am';
     const hour = h % 12 || 12;
     return `${hour}:${m.toString().padStart(2, '0')}${ampm}`;
+  }
+
+  function eventDurationMins(startIso: string, endIso: string): number {
+    return Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
+  }
+
+  function isEventNow(startIso: string, endIso: string): boolean {
+    const now = Date.now();
+    return new Date(startIso).getTime() <= now && new Date(endIso).getTime() >= now;
+  }
+
+  async function addMissionToCalendar(missionText: string) {
+    try {
+      const { status } = await Calendar.requestCalendarPermissionsAsync();
+      if (status !== 'granted') return;
+      const cals = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+      const target = cals.find(c => c.allowsModifications) ?? cals[0];
+      if (!target) return;
+      const start = new Date();
+      start.setMinutes(Math.ceil(start.getMinutes() / 15) * 15, 0, 0);
+      await Calendar.createEventAsync(target.id, {
+        title: missionText,
+        startDate: start,
+        endDate: new Date(start.getTime() + 30 * 60000),
+        notes: 'Mission — Tether War Room',
+      });
+    } catch { /* non-blocking */ }
   }
 
   // ── INTEL OVERLAY HANDLERS ──────────────────────────────────────────────────
@@ -695,6 +927,8 @@ export default function WarRoom() {
     m.done = m.steps.length > 0 && m.steps.every(s => s.done);
     if (!wasDone && m.done && user?.id) {
       awardOpsPoints(user.id, 2, 'mission_complete').catch(() => {});
+      setConfettiMission(missionIdx);
+      setTimeout(() => setConfettiMission(null), 800);
     }
     setMissions(updated);
     AsyncStorage.setItem(MISSIONS_KEY, JSON.stringify(updated));
@@ -796,6 +1030,42 @@ export default function WarRoom() {
 
   return (
     <SafeAreaView style={s.safe}>
+        {/* ── FAMILY ARCHITECT OVERLAY ────────────────────────────────────────── */}
+        {showFamilyArchitect && (
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }}>
+            <FamilyArchitect onClose={() => { setShowFamilyArchitect(false); setFamilyArchitectDone(true); }} />
+          </View>
+        )}
+        {/* ── THEME UNLOCK CHOICE ─────────────────────────────────────────────── */}
+        {pendingThemeUnlock && (
+          <ThemeUnlockChoice
+            themeKey={pendingThemeUnlock.themeKey}
+            pairKey={pendingThemeUnlock.pairKey}
+            onChoose={async (chosen) => {
+              setPendingThemeUnlock(null);
+              if (!user?.id) return;
+              // Apply chosen theme
+              await supabase.from('user_profiles').update({ theme: chosen.toUpperCase() }).eq('id', user.id);
+              // Dequeue from theme_unlock_ready
+              const { data } = await supabase.from('user_profiles').select('theme_unlock_ready, theme_history').eq('id', user.id).single();
+              const queue: string[] = data?.theme_unlock_ready ?? [];
+              const history: string[] = data?.theme_history ?? [];
+              await supabase.from('user_profiles').update({
+                theme_unlock_ready: queue.filter(k => k !== pendingThemeUnlock.themeKey),
+                theme_history: history.includes(chosen) ? history : [...history, chosen],
+              }).eq('id', user.id);
+            }}
+            onDismiss={async () => {
+              setPendingThemeUnlock(null);
+              if (!user?.id) return;
+              const { data } = await supabase.from('user_profiles').select('theme_unlock_ready').eq('id', user.id).single();
+              const queue: string[] = data?.theme_unlock_ready ?? [];
+              await supabase.from('user_profiles').update({
+                theme_unlock_ready: queue.filter(k => k !== pendingThemeUnlock.themeKey),
+              }).eq('id', user.id);
+            }}
+          />
+        )}
         {/* ── GLITCH REVEAL ───────────────────────────────────────────────────── */}
         {pendingGlitch && (
           <GlitchReveal
@@ -961,7 +1231,8 @@ export default function WarRoom() {
 
         {/* ── RANK + TARGET ACQUIRED ──────────────────────────────────────────── */}
         {user?.goal_unlocked && (
-          <View style={s.goalCard}>
+          <View style={[s.goalCard, { overflow: 'hidden' }]}>
+            {user?.theme === 'nebula' && <StarField />}
             {/* Rank row */}
             <View style={s.goalHeader}>
               <View>
@@ -1060,7 +1331,8 @@ export default function WarRoom() {
         )}
 
         {/* ── BRAIN STATE ─────────────────────────────────────────────────────── */}
-        <View style={s.section}>
+        <View style={[s.section, { overflow: 'hidden' }]}>
+          {user?.theme === 'nebula' && <StarField />}
           <Text style={s.sectionLabel}>BRAIN STATE</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}>
             {BRAIN_STATES.map(bs => {
@@ -1237,16 +1509,49 @@ export default function WarRoom() {
           );
         })()}
 
+        {/* ── FAMILY ARCHITECT SETUP PROMPT ───────────────────────────────────── */}
+        {user?.house_name && !familyArchitectDone && (
+          <TouchableOpacity
+            style={[s.section, { borderWidth: 1, borderColor: T.accent, borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }]}
+            onPress={() => setShowFamilyArchitect(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontSize: 26 }}>🏠</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: T.accent, fontSize: 11, fontWeight: '800', letterSpacing: 2, marginBottom: 3 }}>FAMILY SETUP</Text>
+              <Text style={{ color: T.text, fontSize: 14, fontWeight: '700' }}>Set up your household</Text>
+              <Text style={{ color: T.muted, fontSize: 12, marginTop: 2 }}>Morning routine, chores, and schedules — 6 quick sessions.</Text>
+            </View>
+            <Shield size={16} color={T.accent} />
+          </TouchableOpacity>
+        )}
+
         {/* ── TODAY'S MISSIONS ─────────────────────────────────────────────────── */}
         <View style={s.section}>
           <Text style={s.sectionLabel}>TODAY'S MISSIONS</Text>
 
-          {calEvents.map(ev => (
-            <View key={ev.id} style={s.missionRow}>
-              <Text style={s.calEventTime}>📅 {formatEventTime(ev.startDate)}</Text>
-              <Text style={s.calEventTitle}>{ev.title}</Text>
-            </View>
-          ))}
+          {calEvents.map(ev => {
+            const isNow = isEventNow(ev.startDate, ev.endDate);
+            const durMins = eventDurationMins(ev.startDate, ev.endDate);
+            return (
+              <View key={ev.id} style={[s.missionRow, isNow && { borderColor: T.accent, borderWidth: 1 }]}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                    {isNow && (
+                      <View style={{ backgroundColor: T.accent, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ color: T.bg, fontSize: 9, fontWeight: '800', letterSpacing: 1.5 }}>NOW</Text>
+                      </View>
+                    )}
+                    <Text style={s.calEventTime}>{formatEventTime(ev.startDate)}</Text>
+                    {durMins > 0 && durMins < 1440 && (
+                      <Text style={[s.calEventTime, { opacity: 0.5 }]}>{durMins}m</Text>
+                    )}
+                  </View>
+                  <Text style={s.calEventTitle}>{ev.title}</Text>
+                </View>
+              </View>
+            );
+          })}
 
           {!calPermission && (
             <Text style={[s.muted, { fontSize: 11, marginBottom: 8 }]}>
@@ -1299,21 +1604,36 @@ export default function WarRoom() {
                         <Text style={{ color: T.accent, fontSize: 10 }}>{m.expanded ? '▲' : '▼'}</Text>
                       </TouchableOpacity>
                     )}
+                    {m.text && calPermission && (
+                      <TouchableOpacity
+                        onPress={() => addMissionToCalendar(m.text)}
+                        style={{ padding: 8 }}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <Text style={{ color: T.muted, fontSize: 11 }}>📅</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 )}
               </View>
               {m.expanded && m.steps.map((step, si) => (
-                <TouchableOpacity 
-                  key={si} 
-                  style={s.stepRow} 
-                  onPress={() => toggleStep(i, si)}
-                >
-                  <View style={[s.stepCheck, step.done && { backgroundColor: T.accent, borderColor: T.accent }]}>
-                    {step.done && <Text style={s.stepCheckText}>✓</Text>}
-                  </View>
-                  <Text style={[s.stepText, { color: step.done ? T.muted : T.text }]}>{step.text}</Text>
-                </TouchableOpacity>
+                <View key={si} style={s.stepRow}>
+                  <AnimatedCheckbox
+                    checked={step.done}
+                    onToggle={() => toggleStep(i, si)}
+                    color={T.accent}
+                    size={20}
+                  />
+                  <Text style={[s.stepText, { color: step.done ? T.muted : T.text, textDecorationLine: step.done ? 'line-through' : 'none' }]}>
+                    {step.text}
+                  </Text>
+                </View>
               ))}
+              {confettiMission === i && (
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="none">
+                  <CheckConfetti trigger={confettiMission === i} color={T.accent} count={12} />
+                </View>
+              )}
             </View>
           ))}
         </View>
@@ -1483,16 +1803,21 @@ export default function WarRoom() {
           <Text style={s.sectionLabel}>QUICK ACCESS</Text>
           <View style={s.quickRow}>
             {([
-              { label: 'WORK',   Icon: Timer,    screen: 'Workday' as const,  overlay: null },
-              { label: 'FIT',    Icon: Dumbbell, screen: 'Fitness' as const,  overlay: null },
-              { label: 'PANTRY', Icon: GlassWater, screen: null,              overlay: 'pantry' as const },
-              { label: 'ARMORY', Icon: Wallet,   screen: 'Budget' as const,   overlay: null },
-              { label: 'OPS',    Icon: Settings2, screen: 'Settings' as const, overlay: null },
+              { label: 'WORK',    Icon: Timer,         screen: 'Workday' as const,  overlay: null },
+              { label: 'FIT',     Icon: Dumbbell,      screen: 'Fitness' as const,  overlay: null },
+              { label: 'PANTRY',  Icon: GlassWater,    screen: null,                overlay: 'pantry' as const },
+              { label: 'ARMORY',  Icon: Wallet,        screen: 'Budget' as const,   overlay: null },
+              { label: 'GROCERY', Icon: ShoppingCart,  screen: 'Fuel' as const,     overlay: 'grocery' as const },
+              { label: 'OPS',     Icon: Settings2,     screen: 'Settings' as const, overlay: null },
             ] as const).map(q => (
               <TouchableOpacity
                 key={q.label}
                 style={s.quickBtn}
-                onPress={() => q.overlay === 'pantry' ? setShowPantry(true) : navigation.navigate(q.screen!)}
+                onPress={() => {
+                  if (q.overlay === 'pantry') { setShowPantry(true); return; }
+                  if (q.overlay === 'grocery') { navigation.navigate('Fuel', { desperateMode: true }); return; }
+                  navigation.navigate(q.screen!);
+                }}
                 activeOpacity={0.75}
               >
                 <q.Icon size={20} color={T.muted} style={{ marginBottom: 6 }} />

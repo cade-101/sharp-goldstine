@@ -159,6 +159,11 @@ const DEFAULT_ENVELOPES = [
   { id: 'emergency',     name: 'Emergency 🚨',     budget: 200, color: '#e03c3c' },
   { id: 'overflow',      name: 'Overflow 💰',      budget: 100, color: '#666666' },
   { id: 'spectre',       name: 'Spectre 💼',       budget: 500, color: '#38bdf8' },
+  { id: 'kids_activities', name: 'Kids Activities 🏃', budget: 200, color: '#f59e0b' },
+  { id: 'school',          name: 'School 📚',          budget: 100, color: '#34d399' },
+  { id: 'clothing',        name: 'Clothing 👕',         budget: 100, color: '#f472b6' },
+  { id: 'subscriptions',   name: 'Subscriptions 📺',   budget: 80,  color: '#818cf8' },
+  { id: 'home_repair',     name: 'Home Repair 🔧',      budget: 150, color: '#94a3b8' },
 ];
 
 type Screen = 'home' | 'log' | 'afford' | 'history' | 'scan_review' | 'envelope_detail';

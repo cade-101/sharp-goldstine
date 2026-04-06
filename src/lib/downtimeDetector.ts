@@ -126,3 +126,42 @@ export async function resolveClarification(clarificationId: string, envelopeId: 
       .eq('amount', clarifRow.amount);
   }
 }
+
+// ── BLITZ ONBOARDING PUSHES ───────────────────────────────────────────────────
+// Sent once each during the user's first week to introduce the Blitz module.
+
+const BLITZ_ONBOARDING: Array<{ dayOffset: number; title: string; body: string }> = [
+  { dayOffset: 1, title: 'BLITZ AVAILABLE',      body: '10 minutes. One room. You\'ve got this.' },
+  { dayOffset: 3, title: 'QUICK WIN WAITING',     body: 'Run a Blitz — pick a zone and clear it in 15 min.' },
+  { dayOffset: 5, title: 'EARN OPS POINTS',       body: 'Complete a Blitz mission to unlock S-RANK and earn bonus Ops Points.' },
+  { dayOffset: 7, title: 'FIRST WEEK COMPLETE',   body: 'You survived. Now go secure a room. Blitz is waiting.' },
+];
+
+export async function checkBlitzOnboarding(userId: string): Promise<void> {
+  try {
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('created_at, blitz_onboarding_sent')
+      .eq('id', userId)
+      .single();
+
+    if (!profile) return;
+    const sentDays: number[] = profile.blitz_onboarding_sent ?? [];
+    const created = new Date(profile.created_at).getTime();
+    const daysSinceCreated = Math.floor((Date.now() - created) / 86400000);
+
+    for (const push of BLITZ_ONBOARDING) {
+      if (daysSinceCreated >= push.dayOffset && !sentDays.includes(push.dayOffset)) {
+        await Notifications.scheduleNotificationAsync({
+          content: { title: push.title, body: push.body, sound: true },
+          trigger: null,
+        });
+        await supabase
+          .from('user_profiles')
+          .update({ blitz_onboarding_sent: [...sentDays, push.dayOffset] })
+          .eq('id', userId);
+        sentDays.push(push.dayOffset);
+      }
+    }
+  } catch { /* non-blocking */ }
+}

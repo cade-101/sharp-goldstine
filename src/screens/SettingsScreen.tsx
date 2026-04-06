@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
-  StatusBar, Alert, ActivityIndicator, ScrollView, Modal, TextInput, Platform, AppState,
+  StatusBar, Alert, ActivityIndicator, ScrollView, Modal, TextInput, Platform, AppState, Linking,
 } from 'react-native';
+import { searchTracks, getValidAccessToken, type SpotifyTrack } from '../lib/spotifyService';
 import QRCode from 'react-native-qrcode-svg';
 import { useUser } from '../context/UserContext';
 import { supabase } from '../lib/supabase';
-import { getTheme, SELECTABLE_THEMES, THEME_REQUIREMENTS } from '../themes';
+import { getTheme, THEME_CATEGORIES, THEME_PAIRS, type ThemePairEntry } from '../themes';
+import { getThemeUnlockProgress, type UnlockTaskResult } from '../lib/themeUnlockTasks';
+import { ChevronLeft, ChevronRight, CheckCircle, Circle } from 'lucide-react-native';
 import { requestHealthPermissions, checkHealthPermissions } from '../lib/healthConnect';
 import ValkyrieLightning from '../components/ValkyrieLightning';
 import ThemeReveal from '../components/ThemeReveal';
@@ -138,6 +141,68 @@ export default function SettingsScreen() {
     Alert.alert('⚡ Granted', `VALKYRIE unlocked for @${target}.`);
   }
 
+  // Spotify alarm linking
+  const [alarmSearchText, setAlarmSearchText] = useState('');
+  const [alarmSearchResults, setAlarmSearchResults] = useState<SpotifyTrack[]>([]);
+  const [alarmSearching, setAlarmSearching] = useState(false);
+  const [savedAlarmUri, setSavedAlarmUri] = useState<string | null>((user as any)?.spotify_alarm_uri ?? null);
+  const [savedAlarmName, setSavedAlarmName] = useState<string | null>(null);
+
+  async function handleAlarmSearch() {
+    if (!alarmSearchText.trim() || !user) return;
+    setAlarmSearching(true);
+    try {
+      const token = await getValidAccessToken(user as any);
+      if (!token) { Alert.alert('Spotify not connected', 'Connect Spotify first in the Household section.'); return; }
+      const results = await searchTracks(alarmSearchText.trim(), token);
+      setAlarmSearchResults(results);
+    } catch { /* non-blocking */ } finally {
+      setAlarmSearching(false);
+    }
+  }
+
+  async function handleSelectAlarmTrack(track: SpotifyTrack) {
+    if (!user?.id) return;
+    await supabase.from('user_profiles').update({ spotify_alarm_uri: track.uri }).eq('id', user.id);
+    setSavedAlarmUri(track.uri);
+    setSavedAlarmName(`${track.name} — ${track.artists[0]?.name ?? ''}`);
+    setAlarmSearchResults([]);
+    setAlarmSearchText('');
+  }
+
+  async function handleClearAlarm() {
+    if (!user?.id) return;
+    await supabase.from('user_profiles').update({ spotify_alarm_uri: null }).eq('id', user.id);
+    setSavedAlarmUri(null);
+    setSavedAlarmName(null);
+  }
+
+  // Theme picker drill-down
+  const [pickerCategory, setPickerCategory] = useState<string | null>(null);
+  const [pickerPair, setPickerPair] = useState<ThemePairEntry | null>(null);
+  const [pairProgress, setPairProgress] = useState<UnlockTaskResult[]>([]);
+  const [loadingProgress, setLoadingProgress] = useState(false);
+
+  useEffect(() => {
+    if (!pickerPair || !user?.id) { setPairProgress([]); return; }
+    const key = pickerPair.dark ?? pickerPair.standalone ?? '';
+    if (!key) return;
+    setLoadingProgress(true);
+    getThemeUnlockProgress(user.id, key, user.house_name ?? null)
+      .then(r => setPairProgress(r.tasks))
+      .catch(() => setPairProgress([]))
+      .finally(() => setLoadingProgress(false));
+  }, [pickerPair, user?.id]);
+
+  function pairsForCategory(catId: string): ThemePairEntry[] {
+    const cat = THEME_CATEGORIES.find(c => c.id === catId);
+    if (!cat) return [];
+    return THEME_PAIRS.filter(p => {
+      const keys = [p.dark, p.warm, p.standalone].filter(Boolean) as string[];
+      return keys.some(k => cat.themes.includes(k));
+    });
+  }
+
   const isForm = user?.theme === 'form';
   const accent = isForm ? '#e8748a' : C.gold;
   const bg = isForm ? '#fdf6f0' : C.black;
@@ -188,52 +253,223 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Theme */}
+        {/* ── THEME PICKER — 3-level drill-down ─────────────────────────────── */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
-          <Text style={[styles.sectionTitle, { color: muted }]}>THEME</Text>
-          {(['SHADOW', ...SELECTABLE_THEMES, 'VALKYRIE'] as const).map(themeKey => {
-            const t = getTheme(themeKey);
-            const themeId = themeKey.toLowerCase();
-            const isValkyrie = themeId === 'valkyrie';
-            const isUnlocked = themeId === 'shadow' || user?.unlocked_themes?.includes(themeId) || isAdmin;
-            const themeSubs: Record<string, string> = {
-              shadow: 'Onyx · Amber', iron: 'Dark · Gold', ronin: 'Ink Black · Red',
-              valkyrie: 'Deep Violet · Silver', forge: 'Stone · Fire', arcane: 'Violet · Spellglow',
-              dragonfire: 'Charcoal · Ember', void: 'Near-black · Teal',
-              verdant: 'Forest · Earth', form: 'Rose · Warm',
-            };
-            return (
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 8 }}>
+            {(pickerCategory || pickerPair) ? (
               <TouchableOpacity
-                key={themeId}
-                style={[
-                  styles.themeRow,
-                  { borderColor: user?.theme === themeId ? t.accent : isUnlocked ? border : 'transparent' },
-                  (!isUnlocked || changingTheme) && { opacity: 0.4 },
-                ]}
                 onPress={() => {
-                  if (!isUnlocked) {
-                    const req = isValkyrie ? 'Granted by Command' : THEME_REQUIREMENTS[themeKey];
-                    Alert.alert('Theme Locked', `Requirement: ${req}`);
-                    return;
-                  }
-                  handleChangeTheme(themeId);
+                  if (pickerPair) { setPickerPair(null); setPairProgress([]); }
+                  else setPickerCategory(null);
                 }}
-                disabled={changingTheme}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <View style={[styles.themeDot, { backgroundColor: t.accent }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.themeLabel, { color: user?.theme === themeId ? t.accent : isUnlocked ? text : muted }]}>
-                    {t.name}
-                  </Text>
-                  <Text style={[styles.themeSub, { color: muted }]}>
-                    {isUnlocked ? (themeSubs[themeId] || 'War Era') : 'LOCKED'}
-                  </Text>
-                </View>
-                {user?.theme === themeId && <Text style={{ color: t.accent, fontSize: 16 }}>✓</Text>}
-                {!isUnlocked && <Text style={{ color: muted, fontSize: 11, letterSpacing: 1 }}>LOCKED</Text>}
+                <ChevronLeft size={16} color={muted} />
               </TouchableOpacity>
-            );
-          })}
+            ) : null}
+            <Text style={[styles.sectionTitle, { color: muted, marginBottom: 0, flex: 1 }]}>
+              {pickerPair
+                ? (pickerPair.label ?? 'THEME DETAIL').toUpperCase()
+                : pickerCategory
+                  ? (THEME_CATEGORIES.find(c => c.id === pickerCategory)?.label ?? 'THEMES')
+                  : 'THEME'}
+            </Text>
+          </View>
+
+          {pickerPair ? (
+            /* ── LEVEL 3: PAIR DETAIL ──────────────────────────────────────── */
+            (() => {
+              const darkKey  = pickerPair.dark;
+              const warmKey  = pickerPair.warm;
+              const soloKey  = pickerPair.standalone;
+              const darkT    = darkKey ? getTheme(darkKey) : null;
+              const warmT    = warmKey ? getTheme(warmKey) : null;
+              const soloT    = soloKey ? getTheme(soloKey) : null;
+              const isUnlocked = (k: string) =>
+                k === 'shadow' || user?.unlocked_themes?.includes(k) || isAdmin;
+
+              const applyTheme = (k: string) => {
+                if (!isUnlocked(k)) {
+                  Alert.alert('Theme Locked', 'Complete the unlock tasks to apply this era.');
+                  return;
+                }
+                setPickerPair(null);
+                setPairProgress([]);
+                setPickerCategory(null);
+                handleChangeTheme(k);
+              };
+
+              return (
+                <View style={{ gap: 12 }}>
+                  {/* Swatches row */}
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    {darkT && darkKey ? (
+                      <TouchableOpacity
+                        style={[
+                          styles.swatchCard,
+                          { backgroundColor: darkT.bg, borderColor: user?.theme === darkKey ? darkT.accent : border },
+                          !isUnlocked(darkKey) && { opacity: 0.45 },
+                        ]}
+                        onPress={() => applyTheme(darkKey)}
+                      >
+                        <View style={[styles.swatchDot, { backgroundColor: darkT.accent }]} />
+                        <Text style={[styles.swatchName, { color: darkT.accent }]}>{darkT.name}</Text>
+                        <Text style={[styles.swatchPill, { color: darkT.muted }]}>DARK</Text>
+                        {user?.theme === darkKey && (
+                          <CheckCircle size={14} color={darkT.accent} style={{ marginTop: 4 }} />
+                        )}
+                        {!isUnlocked(darkKey) && (
+                          <Text style={[styles.swatchLocked, { color: darkT.muted }]}>LOCKED</Text>
+                        )}
+                      </TouchableOpacity>
+                    ) : null}
+                    {warmT && warmKey ? (
+                      <TouchableOpacity
+                        style={[
+                          styles.swatchCard,
+                          { backgroundColor: warmT.bg, borderColor: user?.theme === warmKey ? warmT.accent : border },
+                          !isUnlocked(warmKey) && { opacity: 0.45 },
+                        ]}
+                        onPress={() => applyTheme(warmKey)}
+                      >
+                        <View style={[styles.swatchDot, { backgroundColor: warmT.accent }]} />
+                        <Text style={[styles.swatchName, { color: warmT.accent }]}>{warmT.name}</Text>
+                        <Text style={[styles.swatchPill, { color: warmT.muted }]}>WARM</Text>
+                        {user?.theme === warmKey && (
+                          <CheckCircle size={14} color={warmT.accent} style={{ marginTop: 4 }} />
+                        )}
+                        {!isUnlocked(warmKey) && (
+                          <Text style={[styles.swatchLocked, { color: warmT.muted }]}>LOCKED</Text>
+                        )}
+                      </TouchableOpacity>
+                    ) : null}
+                    {soloT && soloKey ? (
+                      <TouchableOpacity
+                        style={[
+                          styles.swatchCard,
+                          { flex: 1, backgroundColor: soloT.bg, borderColor: user?.theme === soloKey ? soloT.accent : border },
+                          !isUnlocked(soloKey) && { opacity: 0.45 },
+                        ]}
+                        onPress={() => applyTheme(soloKey)}
+                      >
+                        <View style={[styles.swatchDot, { backgroundColor: soloT.accent }]} />
+                        <Text style={[styles.swatchName, { color: soloT.accent }]}>{soloT.name}</Text>
+                        {user?.theme === soloKey && (
+                          <CheckCircle size={14} color={soloT.accent} style={{ marginTop: 4 }} />
+                        )}
+                        {!isUnlocked(soloKey) && (
+                          <Text style={[styles.swatchLocked, { color: soloT.muted }]}>LOCKED</Text>
+                        )}
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+
+                  {/* Unlock tasks */}
+                  {loadingProgress ? (
+                    <ActivityIndicator color={accent} size="small" style={{ marginTop: 8 }} />
+                  ) : pairProgress.length > 0 ? (
+                    <View style={{ gap: 10, marginTop: 4 }}>
+                      <Text style={[styles.sectionTitle, { color: muted, marginBottom: 4 }]}>UNLOCK TASKS</Text>
+                      {pairProgress.map((task, i) => (
+                        <View key={i} style={{ gap: 6 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            {task.complete
+                              ? <CheckCircle size={14} color={accent} />
+                              : <Circle size={14} color={muted} />}
+                            <Text style={[styles.taskDesc, { color: task.complete ? text : muted }]}>
+                              {task.description}
+                            </Text>
+                          </View>
+                          {/* Progress bar */}
+                          <View style={[styles.progressTrack, { backgroundColor: border }]}>
+                            <View
+                              style={[
+                                styles.progressFill,
+                                {
+                                  backgroundColor: accent,
+                                  width: `${Math.round((task.current / task.target) * 100)}%` as any,
+                                },
+                              ]}
+                            />
+                          </View>
+                          <Text style={[styles.progressLabel, { color: muted }]}>
+                            {task.current} / {task.target}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })()
+          ) : pickerCategory ? (
+            /* ── LEVEL 2: PAIRS IN CATEGORY ──────────────────────────────────── */
+            pairsForCategory(pickerCategory).map((pair, idx) => {
+              const darkT = pair.dark ? getTheme(pair.dark) : null;
+              const warmT = pair.warm ? getTheme(pair.warm) : null;
+              const soloT = pair.standalone ? getTheme(pair.standalone) : null;
+              const currentTheme = user?.theme ?? 'shadow';
+              const isActive =
+                currentTheme === pair.dark ||
+                currentTheme === pair.warm ||
+                currentTheme === pair.standalone;
+              const accentColor = darkT?.accent ?? soloT?.accent ?? accent;
+
+              return (
+                <TouchableOpacity
+                  key={idx}
+                  style={[
+                    styles.themeRow,
+                    { borderColor: isActive ? accentColor : border },
+                  ]}
+                  onPress={() => setPickerPair(pair)}
+                >
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    {darkT && <View style={[styles.themeDot, { backgroundColor: darkT.accent }]} />}
+                    {warmT && <View style={[styles.themeDot, { backgroundColor: warmT.accent }]} />}
+                    {soloT && <View style={[styles.themeDot, { backgroundColor: soloT.accent }]} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.themeLabel, { color: isActive ? accentColor : text }]}>
+                      {pair.label}
+                    </Text>
+                    {pair.dark && pair.warm ? (
+                      <Text style={[styles.themeSub, { color: muted }]}>Dark · Warm</Text>
+                    ) : (
+                      <Text style={[styles.themeSub, { color: muted }]}>Standalone</Text>
+                    )}
+                  </View>
+                  {isActive && <CheckCircle size={14} color={accentColor} />}
+                  <ChevronRight size={14} color={muted} />
+                </TouchableOpacity>
+              );
+            })
+          ) : (
+            /* ── LEVEL 1: CATEGORIES ─────────────────────────────────────────── */
+            THEME_CATEGORIES.map(cat => {
+              const count = pairsForCategory(cat.id).length;
+              const activeInCat = pairsForCategory(cat.id).some(p =>
+                [p.dark, p.warm, p.standalone].includes(user?.theme ?? '')
+              );
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[styles.themeRow, { borderColor: activeInCat ? accent : border }]}
+                  onPress={() => setPickerCategory(cat.id)}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.themeLabel, { color: activeInCat ? accent : text }]}>
+                      {cat.label}
+                    </Text>
+                    <Text style={[styles.themeSub, { color: muted }]}>{count} {count === 1 ? 'era' : 'eras'}</Text>
+                  </View>
+                  {activeInCat && <CheckCircle size={14} color={accent} />}
+                  <ChevronRight size={14} color={muted} />
+                </TouchableOpacity>
+              );
+            })
+          )}
         </View>
 
         {/* Units */}
@@ -435,6 +671,75 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* Spotify Alarm */}
+        {user?.spotify_access_token ? (
+          <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
+            <Text style={[styles.sectionTitle, { color: muted }]}>ALARM MUSIC</Text>
+            {savedAlarmUri ? (
+              <View style={{ gap: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <Text style={{ fontSize: 20 }}>🎵</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.rowLabel, { color: text }]} numberOfLines={1}>
+                      {savedAlarmName ?? savedAlarmUri}
+                    </Text>
+                    <Text style={[styles.themeSub, { color: muted }]}>Plays when alarm fires</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => savedAlarmUri && Linking.openURL(savedAlarmUri)}>
+                    <Text style={{ color: accent, fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>▶ TEST</Text>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity
+                  style={{ alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: border }}
+                  onPress={handleClearAlarm}
+                >
+                  <Text style={{ color: muted, fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>REMOVE</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ gap: 10 }}>
+                <Text style={{ color: muted, fontSize: 13, lineHeight: 20 }}>
+                  Pick a Spotify track to open when your morning alarm fires.
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TextInput
+                    style={[styles.grantInput, { flex: 1, color: text, borderColor: border, backgroundColor: cardBg, marginBottom: 0 }]}
+                    placeholder="Search tracks…"
+                    placeholderTextColor={muted}
+                    value={alarmSearchText}
+                    onChangeText={setAlarmSearchText}
+                    onSubmitEditing={handleAlarmSearch}
+                    returnKeyType="search"
+                  />
+                  <TouchableOpacity
+                    style={[styles.joinBtn, { backgroundColor: accent, paddingHorizontal: 16, marginTop: 0 }, alarmSearching && { opacity: 0.5 }]}
+                    onPress={handleAlarmSearch}
+                    disabled={alarmSearching}
+                  >
+                    {alarmSearching
+                      ? <ActivityIndicator color={C.black} size="small" />
+                      : <Text style={[styles.joinBtnText, { fontSize: 12 }]}>GO</Text>}
+                  </TouchableOpacity>
+                </View>
+                {alarmSearchResults.map(track => (
+                  <TouchableOpacity
+                    key={track.id}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: 1, borderTopColor: border }}
+                    onPress={() => handleSelectAlarmTrack(track)}
+                  >
+                    <Text style={{ fontSize: 18 }}>🎵</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.rowLabel, { color: text }]} numberOfLines={1}>{track.name}</Text>
+                      <Text style={[styles.themeSub, { color: muted }]}>{track.artists[0]?.name ?? ''}</Text>
+                    </View>
+                    <Text style={{ color: accent, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>SELECT</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        ) : null}
+
         {/* Privacy */}
         <View style={[styles.section, { backgroundColor: cardBg, borderColor: border }]}>
           <Text style={[styles.sectionTitle, { color: muted }]}>PRIVACY</Text>
@@ -572,6 +877,15 @@ const styles = StyleSheet.create({
   themeDot: { width: 12, height: 12, borderRadius: 6 },
   themeLabel: { fontSize: 13, fontWeight: '700', letterSpacing: 1.5, marginBottom: 2 },
   themeSub: { fontSize: 11, letterSpacing: 0.5 },
+  swatchCard: { flex: 1, borderRadius: 12, borderWidth: 1.5, padding: 14, alignItems: 'center', gap: 6 },
+  swatchDot: { width: 20, height: 20, borderRadius: 10 },
+  swatchName: { fontSize: 11, fontWeight: '800', letterSpacing: 2, textAlign: 'center' },
+  swatchPill: { fontSize: 9, fontWeight: '700', letterSpacing: 2 },
+  swatchLocked: { fontSize: 9, fontWeight: '700', letterSpacing: 2, marginTop: 2 },
+  taskDesc: { fontSize: 12, flex: 1, lineHeight: 17 },
+  progressTrack: { height: 3, borderRadius: 2, overflow: 'hidden' },
+  progressFill: { height: 3, borderRadius: 2 },
+  progressLabel: { fontSize: 10, letterSpacing: 1 },
   grantInput: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 10 },
   grantBtn: { backgroundColor: '#c0c8d8', borderRadius: 10, padding: 14, alignItems: 'center' },
   grantBtnText: { color: '#0d0618', fontSize: 14, fontWeight: '700', letterSpacing: 2 },

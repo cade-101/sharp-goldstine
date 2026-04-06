@@ -1,19 +1,21 @@
 import { supabase } from '../lib/supabase';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, SafeAreaView, Vibration, AppState, AppStateStatus,
 } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import * as TaskManager from 'expo-task-manager';
-import * as BackgroundFetch from 'expo-background-fetch';
 import { Audio } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '../context/UserContext';
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────────
 const FOCUS_DURATION = 52 * 60;
 const BREAK_DURATION = 17 * 60;
-const BG_TASK = 'WORKDAY_RHYTHM_TICK';
+
+const TIMER_START_KEY   = 'workday_timer_start';
+const TIMER_MODE_KEY    = 'workday_timer_mode';
+const TIMER_NOTIF_ID_KEY = 'workday_timer_notif_id';
 
 const BRAIN_STATES = [
   { id: 'locked',    label: '🔒 Locked in', color: '#22c55e' },
@@ -33,12 +35,16 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Background task — fires on each BackgroundFetch interval.
-// Reads shared state from a simple module-level store (updated by the foreground timer).
-TaskManager.defineTask(BG_TASK, async () => {
-  return BackgroundFetch.BackgroundFetchResult.NewData;
-});
-
+// Android notification channel — ensures lock-screen visibility and sound.
+Notifications.setNotificationChannelAsync('default', {
+  name: 'Tether Timers',
+  importance: Notifications.AndroidImportance.HIGH,
+  vibrationPattern: [0, 500, 200, 500],
+  sound: 'default',
+  bypassDnd: false,
+  lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  showBadge: false,
+}).catch(() => {});
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 async function requestNotificationPermission() {
@@ -74,6 +80,54 @@ async function fireBlockEndNotification(type: 'focus' | 'break') {
   });
 }
 
+/**
+ * Schedules an OS-level notification at the exact future fire time.
+ * Cancels any previously scheduled block notification first.
+ * Stores the notification ID and wall-clock start time so we can
+ * recover elapsed time when the app returns to foreground.
+ */
+async function scheduleBlockEndNotification(
+  mode: 'focus' | 'break',
+  secondsRemaining: number,
+): Promise<void> {
+  // Cancel any existing scheduled block notification
+  const existingId = await AsyncStorage.getItem(TIMER_NOTIF_ID_KEY);
+  if (existingId) {
+    await Notifications.cancelScheduledNotificationAsync(existingId).catch(() => {});
+  }
+
+  const fireDate = new Date(Date.now() + secondsRemaining * 1000);
+  const isFocus = mode === 'focus';
+
+  const notifId = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: isFocus ? '🎯 Focus block done' : '⚡ Break over',
+      body: isFocus ? 'Take a break — you earned it.' : "Back to it. Let's go.",
+      sound: true,
+      vibrate: [0, 500, 200, 500],
+      sticky: false,
+    },
+    trigger: { date: fireDate, channelId: 'default' } as any,
+  });
+
+  await AsyncStorage.setItem(TIMER_NOTIF_ID_KEY, notifId);
+  await AsyncStorage.setItem(TIMER_START_KEY, Date.now().toString());
+  await AsyncStorage.setItem(TIMER_MODE_KEY, mode);
+}
+
+/**
+ * Cancels the scheduled OS notification and clears all timer recovery keys.
+ */
+async function cancelScheduledBlockNotification(): Promise<void> {
+  const existingId = await AsyncStorage.getItem(TIMER_NOTIF_ID_KEY);
+  if (existingId) {
+    await Notifications.cancelScheduledNotificationAsync(existingId).catch(() => {});
+    await AsyncStorage.removeItem(TIMER_NOTIF_ID_KEY);
+    await AsyncStorage.removeItem(TIMER_START_KEY);
+    await AsyncStorage.removeItem(TIMER_MODE_KEY);
+  }
+}
+
 // ── COMPONENT ─────────────────────────────────────────────────────────────────
 export default function WorkdayRhythm() {
   const { themeTokens: T } = useUser();
@@ -88,81 +142,69 @@ export default function WorkdayRhythm() {
   const modeRef = useRef<'idle' | 'focus' | 'break'>('idle');
   const secondsRef = useRef(FOCUS_DURATION);
   const blocksRef = useRef(0);
-  const bgTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
- 
 
   useEffect(() => {
     requestNotificationPermission().then(setPermGranted);
-    registerBgTask();
 
     const sub = AppState.addEventListener('change', handleAppStateChange);
     return () => {
       sub.remove();
-      if (bgTimerRef.current) clearInterval(bgTimerRef.current);
     };
   }, []);
 
-  async function registerBgTask() {
-    try {
-      await BackgroundFetch.registerTaskAsync(BG_TASK, {
-        minimumInterval: 60,
-        stopOnTerminate: false,
-        startOnBoot: false,
-      });
-    } catch {
-      // Already registered or not supported — fine
-    }
-  }
-
-  // When app goes to background, start a JS timer via setInterval which keeps
-  // running on iOS (for ~3 min background execution time) and on Android
-  // indefinitely. When block ends, fire the notification.
   function handleAppStateChange(nextState: AppStateStatus) {
     const prev = appStateRef.current;
     appStateRef.current = nextState;
 
     if (prev === 'active' && nextState !== 'active') {
-      // App going to background — start bg timer
-      if (modeRef.current !== 'idle') {
-        startBgTimer();
+      // App going to background / screen locking.
+      // The foreground JS setInterval won't survive — schedule the OS notification
+      // at the exact future fire time so it fires even if JS is dead.
+      if (modeRef.current !== 'idle' && secondsRef.current > 0) {
+        scheduleBlockEndNotification(modeRef.current, secondsRef.current);
       }
-    } else if (nextState === 'active') {
-      // App returning to foreground — sync state from refs
-      stopBgTimer();
-      setSeconds(secondsRef.current);
-      setMode(modeRef.current);
-      setBlocks(blocksRef.current);
     }
-  }
 
-  function startBgTimer() {
-    if (bgTimerRef.current) return;
-    bgTimerRef.current = setInterval(() => {
-      if (modeRef.current === 'idle') {
-        stopBgTimer();
-        return;
-      }
-      secondsRef.current -= 1;
-      if (secondsRef.current <= 0) {
-        if (modeRef.current === 'focus') {
-          blocksRef.current += 1;
-          modeRef.current = 'break';
-          secondsRef.current = BREAK_DURATION;
-          fireBlockEndNotification('focus');
+    if (nextState === 'active' && prev !== 'active') {
+      // App coming back to foreground.
+      // Cancel the OS notification — the foreground timer takes over.
+      cancelScheduledBlockNotification();
+
+      // Recalculate actual elapsed time from wall clock.
+      AsyncStorage.getItem(TIMER_START_KEY).then(startStr => {
+        if (!startStr || modeRef.current === 'idle') return;
+
+        const elapsed = Math.floor((Date.now() - parseInt(startStr, 10)) / 1000);
+        const totalDuration = modeRef.current === 'focus' ? FOCUS_DURATION : BREAK_DURATION;
+        const remaining = Math.max(0, totalDuration - elapsed);
+
+        if (remaining === 0) {
+          // Block ended while backgrounded — fire completion logic now.
+          if (modeRef.current === 'focus') {
+            const newBlocks = blocksRef.current + 1;
+            blocksRef.current = newBlocks;
+            setBlocks(newBlocks);
+            modeRef.current = 'break';
+            setMode('break');
+            setSeconds(BREAK_DURATION);
+            secondsRef.current = BREAK_DURATION;
+            scheduleBlockEndNotification('break', BREAK_DURATION);
+          } else {
+            modeRef.current = 'focus';
+            setMode('focus');
+            setSeconds(FOCUS_DURATION);
+            secondsRef.current = FOCUS_DURATION;
+            scheduleBlockEndNotification('focus', FOCUS_DURATION);
+          }
         } else {
-          modeRef.current = 'focus';
-          secondsRef.current = FOCUS_DURATION;
-          fireBlockEndNotification('break');
+          // Block still running — update UI to show correct remaining time.
+          setSeconds(remaining);
+          secondsRef.current = remaining;
         }
-      }
-    }, 1000);
-  }
+      }).catch(() => {});
 
-  function stopBgTimer() {
-    if (bgTimerRef.current) {
-      clearInterval(bgTimerRef.current);
-      bgTimerRef.current = null;
+      setBlocks(blocksRef.current);
     }
   }
 
@@ -182,12 +224,20 @@ export default function WorkdayRhythm() {
             setBlocks(newBlocks);
             modeRef.current = 'break';
             setMode('break');
+            secondsRef.current = BREAK_DURATION;
             fireBlockEndNotification('focus');
+            cancelScheduledBlockNotification().then(() =>
+              scheduleBlockEndNotification('break', BREAK_DURATION),
+            );
             return BREAK_DURATION;
           } else {
             modeRef.current = 'focus';
             setMode('focus');
+            secondsRef.current = FOCUS_DURATION;
             fireBlockEndNotification('break');
+            cancelScheduledBlockNotification().then(() =>
+              scheduleBlockEndNotification('focus', FOCUS_DURATION),
+            );
             return FOCUS_DURATION;
           }
         }
@@ -217,10 +267,11 @@ export default function WorkdayRhythm() {
     setSeconds(FOCUS_DURATION);
     setBlocks(0);
     setMode('focus');
+    scheduleBlockEndNotification('focus', FOCUS_DURATION);
   };
 
   const reset = async () => {
-    stopBgTimer();
+    cancelScheduledBlockNotification();
     if (blocks > 0) {
       await supabase
         .from('workday_sessions')
