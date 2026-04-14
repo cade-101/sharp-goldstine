@@ -40,3 +40,4 @@ yarn-error.*
 /ios
 /android
 src/lib/config.ts
+src/lib/config.ts
